@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>access-window-mediamtx</Name>
+  <Repository>bluenviron/mediamtx:latest</Repository>
+  <Registry>https://hub.docker.com/r/bluenviron/mediamtx</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/raghalis/Daycare-App</Support>
+  <Project>https://github.com/raghalis/Daycare-App</Project>
+  <Overview>MediaMTX - pulls RTSP from your UniFi Protect cameras and re-publishes as HLS for Access Window. Put this on the same custom Docker network as access-window-api so the API can reach it by name for auth checks and health polling.&#10;&#10;Edit the mounted config file directly to add your cameras' real RTSP sources.</Overview>
+  <Category>HomeAutomation: MediaApp:Video</Category>
+  <WebUI/>
+  <TemplateURL>https://raw.githubusercontent.com/raghalis/Daycare-App/main/unraid-templates/access-window-mediamtx.xml</TemplateURL>
+  <Icon/>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>Nothing - but access-window-api needs to reach this container by name, so add it to that container first, or plan the shared network before adding either.</Requires>
+
+  <Config Name="HLS Port" Target="8888" Default="8888" Mode="tcp" Description="HLS output - point your NPMPlus /hls/ proxy location here" Type="Port" Display="always" Required="true" Mask="false">8888</Config>
+  <Config Name="Config File" Target="/mediamtx.yml" Default="/mnt/user/appdata/access-window/mediamtx.yml" Mode="ro" Description="Your mediamtx.yml with real camera RTSP sources - see the repo's mediamtx/mediamtx.yml for the template" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/access-window/mediamtx.yml</Config>
+</Container>

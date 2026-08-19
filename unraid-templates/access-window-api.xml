@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>access-window-api</Name>
+  <Repository>ghcr.io/raghalis/access-window-api:latest</Repository>
+  <Registry>https://ghcr.io/raghalis/access-window-api</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/raghalis/Daycare-App</Support>
+  <Project>https://github.com/raghalis/Daycare-App</Project>
+  <Overview>Access Window - the FastAPI backend for scheduled, per-parent camera viewing (login, invites, stream tokens, camera health/Pushover alerts). Needs the access-window-mediamtx container reachable by name - put both containers on the same custom Docker network, whatever you already use for your NPMPlus-fronted apps.&#10;&#10;First run only: docker exec access-window-api python -m app.seed</Overview>
+  <Category>HomeAutomation: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8000]/login.html</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/raghalis/Daycare-App/main/unraid-templates/access-window-api.xml</TemplateURL>
+  <Icon/>
+  <ExtraParams/>
+  <PostArgs/>
+  <CPUset/>
+  <DateInstalled/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires>access-window-mediamtx, on the same custom Docker network as this container</Requires>
+
+  <Config Name="WebUI Port" Target="8000" Default="8000" Mode="tcp" Description="Port the app listens on - point your NPMPlus proxy host here" Type="Port" Display="always" Required="true" Mask="false">8000</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/access-window/data" Mode="rw" Description="SQLite database storage" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/access-window/data</Config>
+
+  <Config Name="DATABASE_URL" Target="DATABASE_URL" Default="sqlite:////data/access_window.db" Mode="" Description="" Type="Variable" Display="advanced" Required="true" Mask="false">sqlite:////data/access_window.db</Config>
+  <Config Name="SESSION_SECRET" Target="SESSION_SECRET" Default="" Mode="" Description="Random 32+ character secret for session cookies" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="SESSION_TTL_HOURS" Target="SESSION_TTL_HOURS" Default="12" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">12</Config>
+  <Config Name="STREAM_TOKEN_SECRET" Target="STREAM_TOKEN_SECRET" Default="" Mode="" Description="Random secret, must differ from SESSION_SECRET" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="STREAM_TOKEN_TTL_SECONDS" Target="STREAM_TOKEN_TTL_SECONDS" Default="90" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">90</Config>
+  <Config Name="INVITE_TTL_DAYS" Target="INVITE_TTL_DAYS" Default="7" Mode="" Description="" Type="Variable" Display="advanced" Required="false" Mask="false">7</Config>
+  <Config Name="APP_TIMEZONE" Target="APP_TIMEZONE" Default="America/Los_Angeles" Mode="" Description="Everyone is assumed local to this timezone" Type="Variable" Display="advanced" Required="false" Mask="false">America/Los_Angeles</Config>
+  <Config Name="MEDIAMTX_API_URL" Target="MEDIAMTX_API_URL" Default="http://access-window-mediamtx:9997" Mode="" Description="Container name of the mediamtx container - only reachable if both share a Docker network" Type="Variable" Display="always" Required="true" Mask="false">http://access-window-mediamtx:9997</Config>
+  <Config Name="MEDIAMTX_HLS_BASE_URL" Target="MEDIAMTX_HLS_BASE_URL" Default="" Mode="" Description="Public HTTPS URL NPMPlus fronts MediaMTX's HLS output as, e.g. https://cameras.yourdomain.com/hls" Type="Variable" Display="always" Required="true" Mask="false"></Config>
+  <Config Name="PUSHOVER_APP_TOKEN" Target="PUSHOVER_APP_TOKEN" Default="" Mode="" Description="Pushover Application token (pushover.net/apps/build) - shared by the whole app" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="SEED_SUPER_ADMIN_EMAIL" Target="SEED_SUPER_ADMIN_EMAIL" Default="" Mode="" Description="Used once by `docker exec access-window-api python -m app.seed`" Type="Variable" Display="advanced" Required="false" Mask="false"></Config>
+  <Config Name="SEED_SUPER_ADMIN_PASSWORD" Target="SEED_SUPER_ADMIN_PASSWORD" Default="" Mode="" Description="Used once by `docker exec access-window-api python -m app.seed`" Type="Variable" Display="advanced" Required="false" Mask="true"></Config>
+</Container>

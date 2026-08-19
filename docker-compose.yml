@@ -1,32 +1,30 @@
 services:
   mediamtx:
     image: bluenviron/mediamtx:latest
-    container_name: daycare-mediamtx
+    container_name: access-window-mediamtx
     restart: unless-stopped
     volumes:
       - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
-    networks:
-      - internal
-      - proxy
+    ports:
+      - "8888:8888"
     # RTSP pull from the cameras is outbound only - nothing to forward for that.
-    # HLS (8888) is reached by NPMPlus over the `proxy` network, not a host port.
+    # Port 9997 (the internal health/auth API) is deliberately not published -
+    # `api` reaches it over the default network by container name only.
 
   api:
-    build: ./api
-    container_name: daycare-api
+    image: ghcr.io/raghalis/access-window-api:latest
+    container_name: access-window-api
     restart: unless-stopped
     env_file: .env
     volumes:
       - ./data:/data
+    ports:
+      - "8000:8000"
     depends_on:
       - mediamtx
-    networks:
-      - internal
-      - proxy
 
-networks:
-  internal:
-    driver: bridge
-  proxy:
-    external: true
-    name: ${PROXY_NETWORK_NAME}
+# No custom networks declared - compose already puts every service in this
+# file on one shared default network, so `api` can reach `mediamtx` (and
+# vice versa) by container name with no extra configuration. Point NPMPlus
+# at this host's published ports (8000 here, 8888 if you also publish
+# mediamtx's HLS port) rather than joining a named external network.
