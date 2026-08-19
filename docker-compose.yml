@@ -1,0 +1,32 @@
+services:
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: daycare-mediamtx
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+    networks:
+      - internal
+      - proxy
+    # RTSP pull from the cameras is outbound only - nothing to forward for that.
+    # HLS (8888) is reached by NPMPlus over the `proxy` network, not a host port.
+
+  api:
+    build: ./api
+    container_name: daycare-api
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data
+    depends_on:
+      - mediamtx
+    networks:
+      - internal
+      - proxy
+
+networks:
+  internal:
+    driver: bridge
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK_NAME}

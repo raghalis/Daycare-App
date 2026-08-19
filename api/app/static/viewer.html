@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Window - Viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 4vh auto; padding: 0 16px; color: #12181f; }
+  video { width: 100%; background: #12181f; border-radius: 6px; display: block; }
+  #banner { background: #f0dcc5; color: #7a4419; padding: 8px 12px; border-radius: 4px; margin: 10px 0; display: none; font-size: 14px; }
+  #end-card { display: none; padding: 60px 20px; text-align: center; background: #12181f; color: #e7ebef; border-radius: 6px; font-size: 15px; }
+</style>
+</head>
+<body>
+  <h1 id="camera-label">Loading...</h1>
+  <div id="banner"></div>
+  <video id="player" controls autoplay muted playsinline></video>
+  <div id="end-card"></div>
+
+  <script>
+    const TOKEN_REFRESH_MS = 30_000;
+    const STATUS_POLL_MS = 15_000;
+    let cameraId = null;
+    let hls = null;
+
+    async function init() {
+      const res = await fetch("/api/me");
+      if (!res.ok) {
+        window.location.href = "/login.html";
+        return;
+      }
+      const me = await res.json();
+      if (!me.cameras.length) {
+        document.getElementById("camera-label").textContent = "No camera assigned yet.";
+        return;
+      }
+      cameraId = me.cameras[0].id;
+      document.getElementById("camera-label").textContent = me.cameras[0].label;
+
+      refreshToken();
+      setInterval(refreshToken, TOKEN_REFRESH_MS);
+      setInterval(pollStatus, STATUS_POLL_MS);
+    }
+
+    async function refreshToken() {
+      const res = await fetch("/api/stream-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ camera_id: cameraId }),
+      });
+      if (!res.ok) {
+        showEndCard("Viewing hours have ended.");
+        return;
+      }
+      const data = await res.json();
+      playStream(data.stream_url);
+    }
+
+    function playStream(url) {
+      const video = document.getElementById("player");
+      if (window.Hls && Hls.isSupported()) {
+        if (hls) hls.destroy();
+        hls = new Hls();
+        hls.loadSource(url);
+        hls.attachMedia(video);
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = url;
+      }
+    }
+
+    async function pollStatus() {
+      const res = await fetch(`/api/session-status?camera_id=${cameraId}`);
+      if (!res.ok) return;
+      const status = await res.json();
+
+      if (!status.camera_online) {
+        showEndCard("This camera is temporarily offline - we've been notified.");
+        return;
+      }
+      if (!status.allowed) {
+        showEndCard("Viewing hours have ended.");
+        return;
+      }
+
+      const banner = document.getElementById("banner");
+      if (status.window_end) {
+        const end = new Date(status.window_end);
+        const minutesLeft = (end - new Date()) / 60000;
+        if (minutesLeft <= 2) {
+          banner.style.display = "block";
+          banner.textContent = `Viewing ends at ${end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+        }
+      }
+    }
+
+    function showEndCard(message) {
+      document.getElementById("player").style.display = "none";
+      document.getElementById("banner").style.display = "none";
+      const card = document.getElementById("end-card");
+      card.style.display = "block";
+      card.textContent = message;
+      if (hls) {
+        hls.destroy();
+        hls = null;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

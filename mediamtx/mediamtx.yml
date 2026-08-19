@@ -1,0 +1,38 @@
+# MediaMTX config - Access Window
+#
+# Key names here reflect a recent MediaMTX release; diff this against the
+# reference mediamtx.yml bundled with whatever image tag you actually pull -
+# a few names (esp. around auth) have shifted between releases.
+#
+# v1 of this scaffold serves HLS only. NPMPlus (nginx) proxies HTTP/HTTPS
+# fine, but MediaMTX's WebRTC media transport uses UDP/ICE, which a standard
+# reverse proxy cannot forward. See the README's "WebRTC & NPMPlus" section
+# before turning webrtc: yes on below.
+
+logLevel: info
+
+# Internal only - never exposed through NPMPlus. Polled by the API's health
+# checker over the `internal` docker network.
+api: yes
+apiAddress: :9997
+
+# Every read (viewer) connection is authorized by the API before MediaMTX
+# lets it through. Publish (camera -> MediaMTX ingest) is excluded below,
+# since that direction is trusted infrastructure, not a viewer.
+authMethod: http
+authHTTPAddress: http://api:8000/internal/validate
+authHTTPExclude:
+  - action: publish
+
+hls: yes
+hlsAddress: :8888
+hlsAllowOrigin: "*"
+
+webrtc: no
+
+paths:
+  # One block per camera. `mediamtx_path` in the app's `cameras` table must
+  # match the key here (e.g. "toddler-room").
+  toddler-room:
+    source: rtsp://CHANGE_ME_USER:CHANGE_ME_PASS@10.0.30.11:7447/CHANGE_ME_STREAM_PATH
+    sourceOnDemand: yes
