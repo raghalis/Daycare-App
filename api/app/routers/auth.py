@@ -26,7 +26,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         max_age=settings.session_ttl_hours * 3600,
         path="/",
         httponly=True,
-        secure=True,
+        secure=settings.session_cookie_secure,
         samesite="lax",
     )
     db.add(

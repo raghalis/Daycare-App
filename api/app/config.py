@@ -8,6 +8,9 @@ class Settings(BaseSettings):
 
     session_secret: str
     session_ttl_hours: int = 12
+    # Browsers drop Secure cookies over plain HTTP. Set to false only while
+    # testing straight against the container, with no TLS in front of it yet.
+    session_cookie_secure: bool = True
 
     stream_token_secret: str
     stream_token_ttl_seconds: int = 90
