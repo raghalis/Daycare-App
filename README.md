@@ -45,20 +45,25 @@ container gets its own entry in Unraid's Docker tab, with network chosen
 from that per-container dropdown, and an "Update Ready" badge that shows up
 automatically whenever CI publishes a new `:latest`.
 
-1. **Docker tab -> Add Container -> Template: enter a URL manually**, paste:
-   `https://raw.githubusercontent.com/raghalis/Daycare-App/main/unraid-templates/access-window-mediamtx.xml`
-   Set its **Network Type** to whatever custom network your NPMPlus and
-   other proxied apps already share. Before starting it, create
+1. Load the MediaMTX template into Add Container by visiting, in a browser
+   logged into the Unraid webGUI:
+   `http://<unraid-ip>/Docker/AddContainer?xmlTemplate=https://raw.githubusercontent.com/raghalis/Daycare-App/main/unraid-templates/access-window-mediamtx.xml`
+   (Only works once this repo is pushed and public - if you'd rather not
+   wait, copy the XML files into
+   `/boot/config/plugins/dockerMan/templates-user/` on the flash instead;
+   they'll then appear in the **Template** dropdown at the top of Docker ->
+   Add Container.) Set its **Network Type** to whatever custom network your
+   NPMPlus and other proxied apps already share. Before starting it, create
    `/mnt/user/appdata/access-window/mediamtx.yml` on the array using this
    repo's `mediamtx/mediamtx.yml` as a starting point, with your real camera
    RTSP source(s) filled in.
-2. Repeat with:
-   `https://raw.githubusercontent.com/raghalis/Daycare-App/main/unraid-templates/access-window-api.xml`
-   **Same Network Type as step 1** - the API reaches MediaMTX by container
-   name (`access-window-mediamtx`), which only resolves if they're on the
-   same Docker network. Fill in the required fields (`SESSION_SECRET`,
-   `STREAM_TOKEN_SECRET`, `MEDIAMTX_HLS_BASE_URL`, optionally
-   `PUSHOVER_APP_TOKEN`) - the template flags which ones are required.
+2. Repeat for the API, same way, swapping in
+   `access-window-api.xml`. **Same Network Type as step 1** - the API
+   reaches MediaMTX by container name (`access-window-mediamtx`), which
+   only resolves if they're on the same Docker network. Fill in the
+   required fields (`SESSION_SECRET`, `STREAM_TOKEN_SECRET`,
+   `MEDIAMTX_HLS_BASE_URL`, optionally `PUSHOVER_APP_TOKEN`) - the template
+   flags which ones are required.
 3. In NPMPlus, add a proxy host for the API's published port (`8000` by
    default) and a second location forwarding `/hls/` to MediaMTX's port
    (`8888`) - see "NPMPlus" below for why HLS, not WebRTC.
