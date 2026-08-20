@@ -29,6 +29,7 @@
       <div class="stat-row" id="stats"></div>
 
       <h2>Recent activity</h2>
+      <p class="lede" style="margin-bottom: 10px;">Routine token refreshes (~every 20 min per active viewer) are hidden here - see the <a href="/admin/audit.html">full audit log</a> to include them.</p>
       <div class="table-wrap">
         <table id="recent-table">
           <thead><tr><th>When</th><th>Event</th><th>Camera</th><th>IP</th></tr></thead>
@@ -72,7 +73,10 @@
         .join("");
 
       const tbody = document.querySelector("#recent-table tbody");
-      const rows = audit.session_events.slice(0, 20).map((e) => {
+      const rows = audit.session_events
+        .filter((e) => e.event !== "token_issued")
+        .slice(0, 20)
+        .map((e) => {
         const cam = e.camera_id ? camerasById[e.camera_id]?.label ?? e.camera_id : "-";
         return `<tr><td>${new Date(e.occurred_at).toLocaleString()}</td><td>${e.event}</td><td>${cam}</td><td class="mono">${e.ip_address ?? "-"}</td></tr>`;
       });

@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Access Window - Audit Log</title>
 <link rel="stylesheet" href="/admin/admin.css">
+<style>
+  #event-filter { display: flex; gap: 12px; flex-wrap: wrap; }
+  #event-filter label { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); }
+</style>
 </head>
 <body>
   <div class="shell">
@@ -27,6 +31,7 @@
       <p class="lede">Last 200 login/token events and last 100 camera health events. Read-only.</p>
 
       <h2>Sessions</h2>
+      <div class="days" id="event-filter" style="margin-bottom: 10px;"></div>
       <div class="table-wrap">
         <table id="session-table">
           <thead><tr><th>When</th><th>Event</th><th>Parent</th><th>Camera</th><th>IP</th></tr></thead>
@@ -46,20 +51,32 @@
 
   <script src="/admin/admin.js"></script>
   <script>
-    async function load() {
-      await requireAdmin();
+    const EVENT_TYPES = [
+      { key: "login", label: "Logins", defaultOn: true },
+      { key: "token_denied", label: "Token denied", defaultOn: true },
+      { key: "window_closed", label: "Window closed", defaultOn: true },
+      { key: "token_issued", label: "Token issued (routine)", defaultOn: false },
+    ];
 
-      const [usersRes, camerasRes, auditRes] = await Promise.all([
-        apiFetch("/api/admin/users"),
-        apiFetch("/api/admin/cameras"),
-        apiFetch("/api/admin/audit"),
-      ]);
-      const usersById = Object.fromEntries((await usersRes.json()).map((u) => [u.id, u]));
-      const camerasById = Object.fromEntries((await camerasRes.json()).map((c) => [c.id, c]));
-      const audit = await auditRes.json();
+    let sessionEvents = [];
+    let usersById = {};
+    let camerasById = {};
 
+    function renderFilter() {
+      document.getElementById("event-filter").innerHTML = EVENT_TYPES.map(
+        (t) => `<label><input type="checkbox" value="${t.key}" ${t.defaultOn ? "checked" : ""} onchange="renderSessions()"> ${t.label}</label>`
+      ).join("");
+    }
+
+    function activeEventTypes() {
+      return Array.from(document.querySelectorAll("#event-filter input:checked")).map((cb) => cb.value);
+    }
+
+    function renderSessions() {
+      const active = new Set(activeEventTypes());
+      const rows = sessionEvents.filter((e) => active.has(e.event));
       document.querySelector("#session-table tbody").innerHTML =
-        audit.session_events
+        rows
           .map(
             (e) => `
         <tr>
@@ -70,7 +87,24 @@
           <td class="mono">${e.ip_address ?? "-"}</td>
         </tr>`
           )
-          .join("") || `<tr><td colspan="5">Nothing yet.</td></tr>`;
+          .join("") || `<tr><td colspan="5">No events match the current filter.</td></tr>`;
+    }
+
+    async function load() {
+      await requireAdmin();
+      renderFilter();
+
+      const [usersRes, camerasRes, auditRes] = await Promise.all([
+        apiFetch("/api/admin/users"),
+        apiFetch("/api/admin/cameras"),
+        apiFetch("/api/admin/audit"),
+      ]);
+      usersById = Object.fromEntries((await usersRes.json()).map((u) => [u.id, u]));
+      camerasById = Object.fromEntries((await camerasRes.json()).map((c) => [c.id, c]));
+      const audit = await auditRes.json();
+      sessionEvents = audit.session_events;
+
+      renderSessions();
 
       document.querySelector("#health-table tbody").innerHTML =
         audit.camera_health_events

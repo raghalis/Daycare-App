@@ -1,4 +1,6 @@
+import os
 import subprocess
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 # Deliberately not pulled through MediaMTX - MediaMTX has no built-in still-
@@ -7,35 +9,51 @@ from datetime import datetime, timedelta, timezone
 # for the stream first. This connects to the camera directly instead.
 
 SNAPSHOT_TTL = timedelta(seconds=15)
-GRAB_TIMEOUT_SECONDS = 8
+GRAB_TIMEOUT_SECONDS = 12
 
 _cache: dict[str, tuple[bytes, datetime]] = {}
 
 
 def _grab_frame(rtsp_source: str) -> bytes | None:
-    try:
-        result = subprocess.run(
-            [
-                "ffmpeg",
-                "-y",
-                "-rtsp_transport",
-                "tcp",
-                "-i",
-                rtsp_source,
-                "-frames:v",
-                "1",
-                "-f",
-                "image2",
-                "-",
-            ],
-            capture_output=True,
-            timeout=GRAB_TIMEOUT_SECONDS,
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        return None
-    if result.returncode != 0 or not result.stdout:
-        return None
-    return result.stdout
+    """
+    Grabbing the very first frame off a fresh RTSP connection (`-frames:v 1`
+    right away) tends to land on a partial frame decoded before a full
+    reference exists - shows up as a flat grey tile or block artifacts. The
+    standard fix: let the decoder run for a couple of seconds, continuously
+    overwriting one output file (`-update 1`), and read back whatever's
+    there at the end - by then it's had time to stabilize on a real frame.
+    """
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        out_path = os.path.join(tmp_dir, "frame.jpg")
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-rtsp_transport",
+                    "tcp",
+                    "-i",
+                    rtsp_source,
+                    "-t",
+                    "2",
+                    "-vf",
+                    "fps=1",
+                    "-update",
+                    "1",
+                    "-q:v",
+                    "4",
+                    out_path,
+                ],
+                capture_output=True,
+                timeout=GRAB_TIMEOUT_SECONDS,
+            )
+        except (subprocess.TimeoutExpired, OSError):
+            return None
+
+        if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+            return None
+        with open(out_path, "rb") as f:
+            return f.read()
 
 
 def get_snapshot(camera_id: str, rtsp_source: str) -> bytes | None:

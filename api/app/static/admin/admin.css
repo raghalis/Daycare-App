@@ -112,6 +112,12 @@ form.panel .row > * { flex: 1; }
 form.panel .days { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 form.panel .days label { display: flex; align-items: center; gap: 4px; font-size: 13.5px; color: var(--ink); margin: 0; min-height: 30px; }
 
+/* Every label carries its own top margin to space the field below it from
+   the one above - a submit button isn't a label, so without this it sits
+   flush against whatever field precedes it. */
+form.panel > button,
+form.panel button[type="submit"] { margin-top: 14px; }
+
 button {
   background: var(--accent);
   color: #fff;
