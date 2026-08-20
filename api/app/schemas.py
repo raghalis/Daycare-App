@@ -82,4 +82,6 @@ class CameraCreate(BaseModel):
 
 class CameraUpdate(BaseModel):
     label: str | None = None
+    mediamtx_path: str | None = None
+    rtsp_source: str | None = None
     is_active: bool | None = None

@@ -150,6 +150,19 @@ Following the design doc's build order, roughly in this shape:
 - [x] Mobile pass: admin's fixed sidebar collapses to a top bar under 780px,
       16px minimum on every input (avoids iOS Safari's auto-zoom-on-focus),
       44px+ tap targets throughout, viewer/login/accept-invite reflowed
+- [x] Cameras page fully manages cameras now, including RTSP source - pushes
+      to MediaMTX's own runtime config API (`/v3/config/paths/*`) instead of
+      requiring a `mediamtx.yml` edit + restart. A sync failure surfaces as a
+      warning rather than blocking the save, since I can't fully verify that
+      API's exact shape against every MediaMTX version - see the comment in
+      `api/app/mediamtx_client.py` for how to check yours if it happens.
+- [x] Live View shows a still frame per camera (ffmpeg grabs one directly
+      from the RTSP source, cached ~15s), not a live stream per tile - each
+      card's "Watch live" opens the real thing in the same page a parent
+      gets, via `/viewer.html?preview=<camera_id>` (admin-only; bypasses the
+      schedule system the same way Live View itself does)
+- [x] Admins get a "Back to admin" link on the viewer page, and land there
+      automatically after login
 - [ ] `next_window_start` computation for the "come back at..." messaging
       (currently only `window_end` is calculated)
 - [ ] SMTP invite delivery (lower priority per your call) - copy/paste the

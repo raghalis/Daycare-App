@@ -36,10 +36,19 @@
 
   #empty { color: #5b6875; font-size: 14px; }
   .hidden { display: none !important; }
+
+  #back-link { display: none; margin-bottom: 10px; }
+  #back-link a { color: #5b6875; font-size: 12.5px; text-decoration: none; }
+  #back-link a:hover { text-decoration: underline; }
+  #preview-pill {
+    display: none; font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: #f0dcc5; color: #7a4419; margin-left: 8px; vertical-align: middle;
+  }
 </style>
 </head>
 <body>
-  <h1 id="camera-label">Loading...</h1>
+  <div id="back-link"><a href="/admin/">&larr; Back to admin</a></div>
+  <h1><span id="camera-label">Loading...</span><span id="preview-pill">Admin preview</span></h1>
   <div id="banner"></div>
 
   <div id="stage" class="hidden">
@@ -70,7 +79,16 @@
         return;
       }
       const me = await res.json();
-      cameras = me.cameras;
+      const isAdmin = me.role === "admin" || me.role === "super_admin";
+      if (isAdmin) document.getElementById("back-link").style.display = "block";
+
+      const previewId = new URLSearchParams(window.location.search).get("preview");
+      if (isAdmin && previewId) {
+        cameras = await loadPreviewCamera(previewId);
+        document.getElementById("preview-pill").style.display = "inline-block";
+      } else {
+        cameras = me.cameras;
+      }
 
       if (!cameras.length) {
         document.getElementById("camera-label").textContent = "Viewer";
@@ -84,6 +102,18 @@
 
       pollAllStatuses();
       setInterval(pollAllStatuses, STATUS_POLL_MS);
+    }
+
+    async function loadPreviewCamera(cameraId) {
+      // Admins can preview any camera without a personal schedule grant -
+      // /api/admin/cameras is what Live View/Cameras use, just borrowed here
+      // for the label. The actual playback works because the backend treats
+      // admin/super_admin as always-allowed, independent of grants.
+      const res = await fetch("/api/admin/cameras");
+      if (!res.ok) return [];
+      const all = await res.json();
+      const match = all.find((c) => c.id === cameraId);
+      return match ? [{ id: match.id, label: match.label }] : [];
     }
 
     function renderSelector() {

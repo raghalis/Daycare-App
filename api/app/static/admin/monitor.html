@@ -5,17 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Access Window - Live View</title>
 <link rel="stylesheet" href="/admin/admin.css">
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
 <style>
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 16px; }
   .cam-card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
-  .cam-card .head { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .cam-card .head { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .cam-card .head span.name { font-weight: 600; font-size: 13.5px; }
-  .cam-card video { width: 100%; aspect-ratio: 16 / 9; background: #12181f; display: block; }
-  .cam-card .placeholder {
-    width: 100%; aspect-ratio: 16 / 9; background: #12181f; color: #93a0ac;
-    display: flex; align-items: center; justify-content: center; font-size: 12.5px; cursor: pointer;
+  .cam-card .frame { width: 100%; aspect-ratio: 16 / 9; background: #12181f; position: relative; overflow: hidden; }
+  .cam-card .frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .cam-card .frame .status {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #93a0ac; font-size: 12px; text-align: center; padding: 12px;
   }
+  .cam-card .foot { padding: 8px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .cam-card .foot .updated { font-size: 11px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -36,17 +38,20 @@
     </nav>
     <main>
       <h1>Live view</h1>
-      <p class="lede">Every active camera, regardless of who has a schedule for it - for setup and troubleshooting. Click a camera to start it; streams don't play automatically.</p>
+      <p class="lede">A still frame from every active camera, refreshed about every 15 seconds - not a live stream, so this stays light even with several cameras. Open "Watch live" on any camera for the real thing, in the same view a parent would get.</p>
       <div class="grid" id="grid"></div>
     </main>
   </div>
 
   <script src="/admin/admin.js"></script>
   <script>
+    const REFRESH_MS = 15_000;
+    let cameras = [];
+
     async function load() {
       await requireAdmin();
       const res = await apiFetch("/api/admin/cameras");
-      const cameras = (await res.json()).filter((c) => c.is_active);
+      cameras = (await res.json()).filter((c) => c.is_active);
 
       const grid = document.getElementById("grid");
       grid.innerHTML = cameras
@@ -54,37 +59,44 @@
           (c) => `
         <div class="cam-card" data-id="${c.id}">
           <div class="head"><span class="name">${c.label}</span></div>
-          <div class="placeholder" onclick="startCamera('${c.id}')">Click to view</div>
+          <div class="frame">
+            <img id="img-${c.id}" alt="${c.label}" style="display:none">
+            <div class="status" id="status-${c.id}">Loading...</div>
+          </div>
+          <div class="foot">
+            <span class="updated" id="updated-${c.id}"></span>
+            <a href="/viewer.html?preview=${c.id}"><button type="button" class="tiny">Watch live</button></a>
+          </div>
         </div>`
         )
         .join("") || "<p>No active cameras.</p>";
+
+      cameras.forEach(refreshSnapshot);
+      setInterval(() => cameras.forEach(refreshSnapshot), REFRESH_MS);
     }
 
-    async function startCamera(cameraId) {
-      const card = document.querySelector(`.cam-card[data-id="${cameraId}"]`);
-      const placeholder = card.querySelector(".placeholder");
-      placeholder.textContent = "Connecting...";
-
-      const res = await apiFetch("/api/stream-token", { method: "POST", body: { camera_id: cameraId } });
-      if (!res.ok) {
-        placeholder.textContent = "Could not start stream.";
-        return;
-      }
-      const data = await res.json();
-
-      const video = document.createElement("video");
-      video.controls = true;
-      video.autoplay = true;
-      video.muted = true;
-      video.playsInline = true;
-      placeholder.replaceWith(video);
-
-      if (window.Hls && Hls.isSupported()) {
-        const hls = new Hls();
-        hls.loadSource(data.stream_url);
-        hls.attachMedia(video);
-      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        video.src = data.stream_url;
+    async function refreshSnapshot(camera) {
+      const img = document.getElementById(`img-${camera.id}`);
+      const status = document.getElementById(`status-${camera.id}`);
+      try {
+        const res = await apiFetch(`/api/admin/cameras/${camera.id}/snapshot?t=${Date.now()}`);
+        if (!res.ok) {
+          status.textContent = "No preview available right now.";
+          status.style.display = "flex";
+          return;
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const previous = img.src;
+        img.src = url;
+        img.style.display = "block";
+        status.style.display = "none";
+        document.getElementById(`updated-${camera.id}`).textContent =
+          "Updated " + new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+        if (previous) URL.revokeObjectURL(previous);
+      } catch (err) {
+        status.textContent = "No preview available right now.";
+        status.style.display = "flex";
       }
     }
 

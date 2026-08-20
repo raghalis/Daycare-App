@@ -1,12 +1,13 @@
 from datetime import datetime, time, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
 from ..deps import require_role
+from ..mediamtx_client import MediaMTXSyncError, add_path, patch_path, remove_path
 from ..models import (
     AccessGrant,
     Camera,
@@ -26,6 +27,7 @@ from ..schemas import (
     OverrideCreate,
     UserUpdate,
 )
+from ..snapshot import get_snapshot
 from ..timeutil import to_utc_iso
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -208,10 +210,38 @@ def delete_override(override_id: str, db: Session = Depends(get_db), _: User = D
 
 @router.get("/cameras")
 def list_cameras(db: Session = Depends(get_db), _: User = Depends(admin_or_above)):
+    # No rtsp_source here - this is used broadly (grants/overrides dropdowns
+    # etc.) by plain admins, not just super admins. Credentials stay confined
+    # to the detail endpoint below.
     cameras = db.query(Camera).all()
     return [
         {"id": c.id, "label": c.label, "mediamtx_path": c.mediamtx_path, "is_active": c.is_active} for c in cameras
     ]
+
+
+@router.get("/cameras/{camera_id}")
+def get_camera(camera_id: str, db: Session = Depends(get_db), _: User = Depends(super_admin_only)):
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        _not_found("Camera")
+    return {
+        "id": camera.id,
+        "label": camera.label,
+        "mediamtx_path": camera.mediamtx_path,
+        "rtsp_source": camera.rtsp_source,
+        "is_active": camera.is_active,
+    }
+
+
+@router.get("/cameras/{camera_id}/snapshot")
+def camera_snapshot(camera_id: str, db: Session = Depends(get_db), _: User = Depends(admin_or_above)):
+    camera = db.get(Camera, camera_id)
+    if not camera or not camera.is_active:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera not found")
+    image = get_snapshot(camera.id, camera.rtsp_source)
+    if not image:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Could not grab a frame from this camera right now")
+    return Response(content=image, media_type="image/jpeg")
 
 
 @router.post("/cameras")
@@ -219,7 +249,13 @@ def create_camera(payload: CameraCreate, db: Session = Depends(get_db), _: User 
     camera = Camera(label=payload.label, mediamtx_path=payload.mediamtx_path, rtsp_source=payload.rtsp_source)
     db.add(camera)
     db.commit()
-    return {"id": camera.id}
+
+    warning = None
+    try:
+        add_path(camera.mediamtx_path, camera.rtsp_source)
+    except MediaMTXSyncError as exc:
+        warning = f"Camera saved, but MediaMTX wasn't updated automatically ({exc}) - it may need adding to mediamtx.yml by hand."
+    return {"id": camera.id, "warning": warning}
 
 
 @router.patch("/cameras/{camera_id}")
@@ -229,12 +265,37 @@ def update_camera(
     camera = db.get(Camera, camera_id)
     if not camera:
         _not_found("Camera")
+
+    old_path = camera.mediamtx_path
+    old_active = camera.is_active
+    path_changed = payload.mediamtx_path is not None and payload.mediamtx_path != old_path
+    source_changed = payload.rtsp_source is not None and payload.rtsp_source != camera.rtsp_source
+
     if payload.label is not None:
         camera.label = payload.label
+    if payload.mediamtx_path is not None:
+        camera.mediamtx_path = payload.mediamtx_path
+    if payload.rtsp_source is not None:
+        camera.rtsp_source = payload.rtsp_source
     if payload.is_active is not None:
         camera.is_active = payload.is_active
     db.commit()
-    return {"ok": True}
+
+    warning = None
+    try:
+        if old_active and not camera.is_active:
+            remove_path(old_path)
+        elif not old_active and camera.is_active:
+            add_path(camera.mediamtx_path, camera.rtsp_source)
+        elif camera.is_active and path_changed:
+            # MediaMTX paths are keyed by name - renaming means remove + re-add.
+            remove_path(old_path)
+            add_path(camera.mediamtx_path, camera.rtsp_source)
+        elif camera.is_active and source_changed:
+            patch_path(camera.mediamtx_path, camera.rtsp_source)
+    except MediaMTXSyncError as exc:
+        warning = f"Saved, but MediaMTX wasn't updated automatically ({exc})."
+    return {"ok": True, "warning": warning}
 
 
 @router.delete("/cameras/{camera_id}")
@@ -242,9 +303,16 @@ def delete_camera(camera_id: str, db: Session = Depends(get_db), _: User = Depen
     camera = db.get(Camera, camera_id)
     if not camera:
         _not_found("Camera")
+    path = camera.mediamtx_path
     db.delete(camera)
     db.commit()
-    return {"ok": True}
+
+    warning = None
+    try:
+        remove_path(path)
+    except MediaMTXSyncError as exc:
+        warning = f"Deleted, but MediaMTX wasn't updated automatically ({exc})."
+    return {"ok": True, "warning": warning}
 
 
 @router.get("/audit")
