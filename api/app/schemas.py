@@ -85,3 +85,11 @@ class CameraUpdate(BaseModel):
     mediamtx_path: str | None = None
     rtsp_source: str | None = None
     is_active: bool | None = None
+
+
+class CameraStreamCreate(BaseModel):
+    label: str
+    mediamtx_path: str
+    rtsp_source: str
+    resolution: str | None = None
+    bandwidth_bps: int = 800_000

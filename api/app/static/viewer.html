@@ -19,6 +19,23 @@
     color: #e7ebef; font-size: 14.5px; align-items: center; justify-content: center;
   }
 
+  #quality-btn {
+    display: none; position: absolute; top: 8px; right: 8px; z-index: 2;
+    background: rgba(18, 24, 31, 0.75); color: #fff; border: none; border-radius: 4px;
+    padding: 6px 10px; font-size: 12px; cursor: pointer;
+  }
+  #quality-menu {
+    display: none; position: absolute; top: 42px; right: 8px; z-index: 3;
+    background: #12181f; border: 1px solid #2b3440; border-radius: 6px;
+    min-width: 130px; padding: 4px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  }
+  #quality-menu button {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    color: #c7cfd7; padding: 8px 10px; font-size: 12.5px; cursor: pointer; border-radius: 4px;
+  }
+  #quality-menu button:hover { background: rgba(255, 255, 255, 0.08); }
+  #quality-menu button.active { color: #fff; font-weight: 600; }
+
   #selector {
     display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; padding-bottom: 4px;
     -webkit-overflow-scrolling: touch;
@@ -53,6 +70,8 @@
 
   <div id="stage" class="hidden">
     <video id="player" controls autoplay muted playsinline></video>
+    <button id="quality-btn" type="button" onclick="toggleQualityMenu()">Auto</button>
+    <div id="quality-menu"></div>
     <div id="end-card"></div>
   </div>
   <p id="empty" class="hidden">No cameras assigned yet.</p>
@@ -136,6 +155,7 @@
       document.getElementById("camera-label").textContent = cameras.find((c) => c.id === id)?.label ?? "";
       document.querySelectorAll(".cam-btn").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
       document.getElementById("banner").style.display = "none";
+      document.getElementById("quality-menu").style.display = "none";
 
       clearInterval(tokenRefreshTimer);
       refreshToken();
@@ -173,9 +193,54 @@
         hls = new Hls();
         hls.loadSource(url);
         hls.attachMedia(video);
+        setupQualityMenu();
       } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = url;
       }
+    }
+
+    // A master playlist (multiple quality tiers) gives hls.js a real
+    // `levels` array - MANIFEST_PARSED fires on every loadSource() call,
+    // including the silent token refreshes, so this stays current without
+    // extra wiring. A single-stream camera parses as one synthetic level,
+    // so the button/menu just stay hidden for it.
+    function setupQualityMenu() {
+      hls.on(Hls.Events.MANIFEST_PARSED, (event, data) => renderQualityMenu(data.levels));
+    }
+
+    function renderQualityMenu(levels) {
+      const btn = document.getElementById("quality-btn");
+      const menu = document.getElementById("quality-menu");
+      if (!levels || levels.length <= 1) {
+        btn.style.display = "none";
+        menu.style.display = "none";
+        return;
+      }
+      btn.style.display = "block";
+      btn.textContent = "Auto";
+      const options = [{ index: -1, label: "Auto" }].concat(
+        levels.map((lvl, i) => ({ index: i, label: lvl.name || (lvl.height ? `${lvl.height}p` : `Option ${i + 1}`) }))
+      );
+      menu.innerHTML = options
+        .map(
+          (o) =>
+            `<button type="button" class="${o.index === -1 ? "active" : ""}" data-index="${o.index}" onclick="chooseQuality(${o.index})">${o.label}</button>`
+        )
+        .join("");
+    }
+
+    function chooseQuality(index) {
+      if (!hls) return;
+      hls.currentLevel = index;
+      document.getElementById("quality-menu").style.display = "none";
+      document.getElementById("quality-btn").textContent =
+        index === -1 ? "Auto" : document.querySelector(`#quality-menu button[data-index="${index}"]`)?.textContent ?? "Quality";
+      document.querySelectorAll("#quality-menu button").forEach((b) => b.classList.toggle("active", Number(b.dataset.index) === index));
+    }
+
+    function toggleQualityMenu() {
+      const menu = document.getElementById("quality-menu");
+      menu.style.display = menu.style.display === "block" ? "none" : "block";
     }
 
     async function pollAllStatuses() {
@@ -220,6 +285,8 @@
       const card = document.getElementById("end-card");
       player.style.display = "none";
       document.getElementById("banner").style.display = "none";
+      document.getElementById("quality-btn").style.display = "none";
+      document.getElementById("quality-menu").style.display = "none";
       card.style.display = "flex";
       card.textContent = message;
       if (hls) {

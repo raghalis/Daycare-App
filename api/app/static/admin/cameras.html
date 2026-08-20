@@ -38,6 +38,29 @@
         <p class="msg" id="camera-msg"></p>
       </form>
 
+      <form class="panel hidden" id="variant-form" style="max-width: 480px;">
+        <h2 style="margin-top: 0;">Quality variants</h2>
+        <p class="lede" style="margin-bottom: 12px;">Optional lower-bitrate RTSP aliases (e.g. Protect's "Medium"/"Low" streams for this same camera). Add one or more and parents get a real quality picker in the player, auto-adapting to bandwidth by default.</p>
+
+        <div class="table-wrap" style="margin-bottom: 14px;">
+          <table id="variants-table">
+            <thead><tr><th>Label</th><th>Path</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <label for="variant_label">Label</label>
+        <input type="text" id="variant_label" placeholder="e.g. Low">
+        <label for="variant_path">MediaMTX path</label>
+        <input type="text" id="variant_path" placeholder="e.g. toddler-room-low" pattern="[a-z0-9-]+">
+        <label for="variant_rtsp">RTSP source</label>
+        <input type="text" id="variant_rtsp" placeholder="rtsp://user:pass@camera-ip:7447/...">
+        <label for="variant_resolution">Resolution (optional)</label>
+        <input type="text" id="variant_resolution" placeholder="e.g. 640x360">
+        <button type="submit">Add variant</button>
+        <p class="msg" id="variant-msg"></p>
+      </form>
+
       <h2>Existing cameras</h2>
       <div class="table-wrap">
         <table id="cameras-table">
@@ -84,7 +107,18 @@
       document.getElementById("form-title").textContent = `Edit ${camera.label}`;
       document.getElementById("submit-btn").textContent = "Save changes";
       document.getElementById("cancel-btn").classList.remove("hidden");
+
+      renderVariants(camera.streams);
+      document.getElementById("variant-form").classList.remove("hidden");
       window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    async function refreshVariants() {
+      // Re-renders just the variants table in place - no form repopulation,
+      // no scroll, unlike startEdit() which is for entering edit mode fresh.
+      const res = await apiFetch(`/api/admin/cameras/${editingId}`);
+      if (!res.ok) return;
+      renderVariants((await res.json()).streams);
     }
 
     function cancelEdit() {
@@ -93,7 +127,57 @@
       document.getElementById("form-title").textContent = "Add a camera";
       document.getElementById("submit-btn").textContent = "Add camera";
       document.getElementById("cancel-btn").classList.add("hidden");
+      document.getElementById("variant-form").classList.add("hidden");
+      document.getElementById("variant-form").reset();
     }
+
+    function renderVariants(streams) {
+      document.querySelector("#variants-table tbody").innerHTML =
+        streams
+          .map(
+            (s) => `
+        <tr>
+          <td>${s.label}${s.resolution ? ` <span class="pill role">${s.resolution}</span>` : ""}</td>
+          <td class="mono">${s.mediamtx_path}</td>
+          <td class="actions"><button type="button" class="tiny secondary" onclick="removeVariant('${s.id}')">Remove</button></td>
+        </tr>`
+          )
+          .join("") || `<tr><td colspan="3">No extra quality tiers yet - this camera plays its single stream directly.</td></tr>`;
+    }
+
+    async function removeVariant(streamId) {
+      if (!confirm("Remove this quality variant?")) return;
+      const res = await apiFetch(`/api/admin/cameras/${editingId}/streams/${streamId}`, { method: "DELETE" });
+      const body = await res.json();
+      if (body.warning) alert(body.warning);
+      refreshVariants();
+    }
+
+    document.getElementById("variant-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const msg = document.getElementById("variant-msg");
+      const resolution = document.getElementById("variant_resolution").value;
+      const res = await apiFetch(`/api/admin/cameras/${editingId}/streams`, {
+        method: "POST",
+        body: {
+          label: document.getElementById("variant_label").value,
+          mediamtx_path: document.getElementById("variant_path").value,
+          rtsp_source: document.getElementById("variant_rtsp").value,
+          resolution: resolution || null,
+        },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showMsg(msg, body.detail || "Could not add variant.", true);
+        return;
+      }
+      showMsg(msg, body.warning || "Variant added.", Boolean(body.warning));
+      document.getElementById("variant_label").value = "";
+      document.getElementById("variant_path").value = "";
+      document.getElementById("variant_rtsp").value = "";
+      document.getElementById("variant_resolution").value = "";
+      refreshVariants();
+    });
 
     async function toggleCamera(id, nextActive) {
       const res = await apiFetch(`/api/admin/cameras/${id}`, { method: "PATCH", body: { is_active: nextActive } });

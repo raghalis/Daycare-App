@@ -12,6 +12,7 @@ from ..models import (
     AccessGrant,
     Camera,
     CameraHealthEvent,
+    CameraStream,
     Invite,
     OverrideKind,
     Role,
@@ -22,6 +23,7 @@ from ..models import (
 from ..schemas import (
     AdminInviteRequest,
     CameraCreate,
+    CameraStreamCreate,
     CameraUpdate,
     GrantCreate,
     OverrideCreate,
@@ -230,7 +232,66 @@ def get_camera(camera_id: str, db: Session = Depends(get_db), _: User = Depends(
         "mediamtx_path": camera.mediamtx_path,
         "rtsp_source": camera.rtsp_source,
         "is_active": camera.is_active,
+        "streams": [
+            {
+                "id": s.id,
+                "label": s.label,
+                "mediamtx_path": s.mediamtx_path,
+                "rtsp_source": s.rtsp_source,
+                "resolution": s.resolution,
+                "bandwidth_bps": s.bandwidth_bps,
+            }
+            for s in camera.streams
+        ],
     }
+
+
+@router.post("/cameras/{camera_id}/streams")
+def create_camera_stream(
+    camera_id: str, payload: CameraStreamCreate, db: Session = Depends(get_db), _: User = Depends(super_admin_only)
+):
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        _not_found("Camera")
+
+    stream = CameraStream(
+        camera_id=camera.id,
+        label=payload.label,
+        mediamtx_path=payload.mediamtx_path,
+        rtsp_source=payload.rtsp_source,
+        resolution=payload.resolution,
+        bandwidth_bps=payload.bandwidth_bps,
+        sort_order=len(camera.streams),
+    )
+    db.add(stream)
+    db.commit()
+
+    warning = None
+    if camera.is_active:
+        try:
+            add_path(stream.mediamtx_path, stream.rtsp_source)
+        except MediaMTXSyncError as exc:
+            warning = f"Saved, but MediaMTX wasn't updated automatically ({exc})."
+    return {"id": stream.id, "warning": warning}
+
+
+@router.delete("/cameras/{camera_id}/streams/{stream_id}")
+def delete_camera_stream(
+    camera_id: str, stream_id: str, db: Session = Depends(get_db), _: User = Depends(super_admin_only)
+):
+    stream = db.get(CameraStream, stream_id)
+    if not stream or stream.camera_id != camera_id:
+        _not_found("Stream")
+    path = stream.mediamtx_path
+    db.delete(stream)
+    db.commit()
+
+    warning = None
+    try:
+        remove_path(path)
+    except MediaMTXSyncError as exc:
+        warning = f"Deleted, but MediaMTX wasn't updated automatically ({exc})."
+    return {"ok": True, "warning": warning}
 
 
 @router.get("/cameras/{camera_id}/snapshot")
@@ -285,8 +346,12 @@ def update_camera(
     try:
         if old_active and not camera.is_active:
             remove_path(old_path)
+            for s in camera.streams:
+                remove_path(s.mediamtx_path)
         elif not old_active and camera.is_active:
             add_path(camera.mediamtx_path, camera.rtsp_source)
+            for s in camera.streams:
+                add_path(s.mediamtx_path, s.rtsp_source)
         elif camera.is_active and path_changed:
             # MediaMTX paths are keyed by name - renaming means remove + re-add.
             remove_path(old_path)
@@ -303,15 +368,17 @@ def delete_camera(camera_id: str, db: Session = Depends(get_db), _: User = Depen
     camera = db.get(Camera, camera_id)
     if not camera:
         _not_found("Camera")
-    path = camera.mediamtx_path
+    paths = [camera.mediamtx_path] + [s.mediamtx_path for s in camera.streams]
     db.delete(camera)
     db.commit()
 
-    warning = None
-    try:
-        remove_path(path)
-    except MediaMTXSyncError as exc:
-        warning = f"Deleted, but MediaMTX wasn't updated automatically ({exc})."
+    failures = []
+    for path in paths:
+        try:
+            remove_path(path)
+        except MediaMTXSyncError as exc:
+            failures.append(f"{path} ({exc})")
+    warning = f"Deleted, but MediaMTX wasn't updated automatically for: {', '.join(failures)}." if failures else None
     return {"ok": True, "warning": warning}
 
 

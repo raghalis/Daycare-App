@@ -83,12 +83,44 @@ class Camera(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     label: Mapped[str] = mapped_column(String(120))
+    # The default/primary stream - kept here rather than folded into
+    # CameraStream so existing single-quality cameras need no migration.
+    # Quality variants (added later, optional) live in CameraStream instead.
     mediamtx_path: Mapped[str] = mapped_column(String(120), unique=True)
     # Lives here for MediaMTX/admin config only - never returned by any API response.
     rtsp_source: Mapped[str] = mapped_column(String(500))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     grants: Mapped[list["AccessGrant"]] = relationship(back_populates="camera", cascade="all, delete-orphan")
+    streams: Mapped[list["CameraStream"]] = relationship(
+        back_populates="camera", cascade="all, delete-orphan", order_by="CameraStream.sort_order"
+    )
+
+
+class CameraStream(Base):
+    """
+    An additional quality tier for a camera (e.g. a lower-bitrate RTSP alias
+    Protect also exposes). A camera with zero rows here just plays its single
+    mediamtx_path/rtsp_source directly, exactly as before. One or more rows
+    here makes the stream-token endpoint hand back an HLS master playlist
+    instead, so hls.js gets real quality variants - auto bandwidth-adaptive
+    switching by default, with a manual picker layered on top client-side.
+    """
+
+    __tablename__ = "camera_streams"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    camera_id: Mapped[str] = mapped_column(String(36), ForeignKey("cameras.id"))
+    label: Mapped[str] = mapped_column(String(60))  # "High", "Medium", "Low"
+    mediamtx_path: Mapped[str] = mapped_column(String(120), unique=True)
+    rtsp_source: Mapped[str] = mapped_column(String(500))
+    resolution: Mapped[str | None] = mapped_column(String(20), nullable=True)  # e.g. "1280x720", display/hint only
+    # Rough encoded bitrate in bits/sec - an ABR hint for the player, not a
+    # hard limit. Doesn't need to be exact.
+    bandwidth_bps: Mapped[int] = mapped_column(Integer, default=800_000)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    camera: Mapped["Camera"] = relationship(back_populates="streams")
 
 
 class AccessGrant(Base):

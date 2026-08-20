@@ -163,6 +163,13 @@ Following the design doc's build order, roughly in this shape:
       schedule system the same way Live View itself does)
 - [x] Admins get a "Back to admin" link on the viewer page, and land there
       automatically after login
+- [x] Multi-quality streaming: a camera can have extra "quality variant" RTSP
+      sources (Protect's Medium/Low aliases, say), managed from the Cameras
+      page. The API serves a real HLS master playlist when variants exist,
+      so hls.js auto-switches quality by bandwidth by default AND exposes a
+      YouTube-style manual picker in the corner of the player - one
+      mechanism gives both. A camera with no variants plays exactly as
+      before, no change needed on existing cameras.
 - [ ] `next_window_start` computation for the "come back at..." messaging
       (currently only `window_end` is calculated)
 - [ ] SMTP invite delivery (lower priority per your call) - copy/paste the

@@ -35,7 +35,10 @@ async def validate(request: Request):
     db = SessionLocal()
     try:
         camera = db.get(Camera, claims["cam"])
-        if not camera or camera.mediamtx_path != body.get("path"):
+        if not camera:
+            return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+        valid_paths = {camera.mediamtx_path} | {s.mediamtx_path for s in camera.streams}
+        if body.get("path") not in valid_paths:
             return Response(status_code=status.HTTP_401_UNAUTHORIZED)
 
         requester = db.get(User, claims["sub"])
