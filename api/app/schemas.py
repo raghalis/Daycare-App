@@ -67,3 +67,19 @@ class OverrideCreate(BaseModel):
     start_time: str | None = None
     end_time: str | None = None
     reason: str | None = None
+
+
+class UserUpdate(BaseModel):
+    is_active: bool | None = None
+    pushover_user_key: str | None = None
+
+
+class CameraCreate(BaseModel):
+    label: str
+    mediamtx_path: str
+    rtsp_source: str
+
+
+class CameraUpdate(BaseModel):
+    label: str | None = None
+    is_active: bool | None = None

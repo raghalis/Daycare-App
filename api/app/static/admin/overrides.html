@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Window - Overrides</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <div class="shell">
+    <nav class="admin-nav">
+      <div class="brand">Access Window</div>
+      <div class="role-tag" id="nav-role">...</div>
+      <a href="/admin/">Dashboard</a>
+      <a href="/admin/parents.html">Parents</a>
+      <a href="/admin/grants.html">Schedules</a>
+      <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
+      <a href="/admin/admins.html" data-super-admin-only>Admins</a>
+      <a href="/admin/audit.html">Audit Log</a>
+      <div class="spacer"></div>
+      <button class="logout" onclick="logout()">Sign out</button>
+    </nav>
+    <main>
+      <h1>Overrides</h1>
+      <p class="lede">One-day exceptions to the recurring schedule - a sick day (revoke) or an unscheduled day present (grant). Checked before the weekly schedule for that date.</p>
+
+      <form class="panel" id="override-form">
+        <label for="user_id">Parent</label>
+        <select id="user_id" required></select>
+        <label for="camera_id">Camera</label>
+        <select id="camera_id" required></select>
+        <div class="row">
+          <div>
+            <label for="date">Date</label>
+            <input type="date" id="date" required>
+          </div>
+          <div>
+            <label for="kind">Kind</label>
+            <select id="kind">
+              <option value="grant">Grant (allow this day)</option>
+              <option value="revoke">Revoke (block this day)</option>
+            </select>
+          </div>
+        </div>
+        <div class="row" id="time-row">
+          <div>
+            <label for="start_time">Start (optional)</label>
+            <input type="time" id="start_time">
+          </div>
+          <div>
+            <label for="end_time">End (optional)</label>
+            <input type="time" id="end_time">
+          </div>
+        </div>
+        <label for="reason">Reason (optional)</label>
+        <input type="text" id="reason" placeholder="e.g. sick, swapped with Thursday">
+        <button type="submit">Add override</button>
+        <p class="msg" id="override-msg"></p>
+      </form>
+
+      <h2>Upcoming &amp; recent overrides</h2>
+      <div class="table-wrap">
+        <table id="overrides-table">
+          <thead><tr><th>Date</th><th>Parent</th><th>Camera</th><th>Kind</th><th>Hours</th><th>Reason</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+  <script>
+    let usersById = {}, camerasById = {};
+
+    document.getElementById("kind").addEventListener("change", (e) => {
+      document.getElementById("time-row").classList.toggle("hidden", e.target.value === "revoke");
+    });
+
+    async function loadLookups() {
+      const [usersRes, camerasRes] = await Promise.all([
+        apiFetch("/api/admin/users"),
+        apiFetch("/api/admin/cameras"),
+      ]);
+      const users = (await usersRes.json()).filter((u) => u.role === "parent");
+      const cameras = await camerasRes.json();
+      usersById = Object.fromEntries(users.map((u) => [u.id, u]));
+      camerasById = Object.fromEntries(cameras.map((c) => [c.id, c]));
+
+      document.getElementById("user_id").innerHTML = users
+        .map((u) => `<option value="${u.id}">${u.display_name} (${u.email})</option>`)
+        .join("") || `<option disabled>No parents yet</option>`;
+      document.getElementById("camera_id").innerHTML = cameras
+        .map((c) => `<option value="${c.id}">${c.label}</option>`)
+        .join("") || `<option disabled>No cameras yet</option>`;
+    }
+
+    async function loadOverrides() {
+      const res = await apiFetch("/api/admin/overrides");
+      const overrides = await res.json();
+      const tbody = document.querySelector("#overrides-table tbody");
+      tbody.innerHTML = overrides
+        .map(
+          (o) => `
+        <tr>
+          <td>${o.date}</td>
+          <td>${usersById[o.user_id]?.display_name ?? o.user_id}</td>
+          <td>${camerasById[o.camera_id]?.label ?? o.camera_id}</td>
+          <td><span class="pill ${o.kind === "revoke" ? "inactive" : ""}">${o.kind}</span></td>
+          <td>${o.start_time ? o.start_time.slice(0, 5) + " - " + o.end_time.slice(0, 5) : "-"}</td>
+          <td>${o.reason ?? "-"}</td>
+          <td class="actions"><button class="tiny secondary" onclick="removeOverride('${o.id}')">Remove</button></td>
+        </tr>`
+        )
+        .join("") || `<tr><td colspan="7">No overrides yet.</td></tr>`;
+    }
+
+    async function removeOverride(id) {
+      if (!confirm("Remove this override?")) return;
+      await apiFetch(`/api/admin/overrides/${id}`, { method: "DELETE" });
+      loadOverrides();
+    }
+
+    document.getElementById("override-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const msg = document.getElementById("override-msg");
+      const kind = document.getElementById("kind").value;
+      const res = await apiFetch("/api/admin/overrides", {
+        method: "POST",
+        body: {
+          user_id: document.getElementById("user_id").value,
+          camera_id: document.getElementById("camera_id").value,
+          date: document.getElementById("date").value,
+          kind,
+          start_time: kind === "grant" ? document.getElementById("start_time").value || null : null,
+          end_time: kind === "grant" ? document.getElementById("end_time").value || null : null,
+          reason: document.getElementById("reason").value || null,
+        },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showMsg(msg, body.detail || "Could not add override.", true);
+        return;
+      }
+      showMsg(msg, "Override added.", false);
+      loadOverrides();
+    });
+
+    (async () => {
+      await requireAdmin();
+      await loadLookups();
+      await loadOverrides();
+    })();
+  </script>
+</body>
+</html>

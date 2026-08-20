@@ -1,6 +1,7 @@
 from datetime import datetime, time, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -17,12 +18,23 @@ from ..models import (
     SessionEvent,
     User,
 )
-from ..schemas import AdminInviteRequest, GrantCreate, OverrideCreate
+from ..schemas import (
+    AdminInviteRequest,
+    CameraCreate,
+    CameraUpdate,
+    GrantCreate,
+    OverrideCreate,
+    UserUpdate,
+)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 admin_or_above = require_role(Role.admin, Role.super_admin)
 super_admin_only = require_role(Role.super_admin)
+
+
+def _not_found(label: str):
+    raise HTTPException(status.HTTP_404_NOT_FOUND, f"{label} not found")
 
 
 @router.post("/invites")
@@ -52,26 +64,28 @@ def create_invite(payload: AdminInviteRequest, db: Session = Depends(get_db), ac
 def list_users(db: Session = Depends(get_db), _: User = Depends(admin_or_above)):
     users = db.query(User).order_by(User.created_at.desc()).all()
     return [
-        {"id": u.id, "email": u.email, "display_name": u.display_name, "role": u.role.value, "is_active": u.is_active}
+        {
+            "id": u.id,
+            "email": u.email,
+            "display_name": u.display_name,
+            "role": u.role.value,
+            "is_active": u.is_active,
+            "pushover_user_key": u.pushover_user_key,
+            "has_password": u.password_hash is not None,
+        }
         for u in users
     ]
 
 
 @router.patch("/users/{user_id}")
-def update_user(
-    user_id: str,
-    is_active: bool | None = None,
-    pushover_user_key: str | None = None,
-    db: Session = Depends(get_db),
-    _: User = Depends(admin_or_above),
-):
+def update_user(user_id: str, payload: UserUpdate, db: Session = Depends(get_db), _: User = Depends(admin_or_above)):
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
-    if is_active is not None:
-        user.is_active = is_active
-    if pushover_user_key is not None:
-        user.pushover_user_key = pushover_user_key
+        _not_found("User")
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+    if payload.pushover_user_key is not None:
+        user.pushover_user_key = payload.pushover_user_key
     db.commit()
     return {"ok": True}
 
@@ -107,6 +121,16 @@ def list_grants(db: Session = Depends(get_db), _: User = Depends(admin_or_above)
     ]
 
 
+@router.delete("/grants/{grant_id}")
+def delete_grant(grant_id: str, db: Session = Depends(get_db), _: User = Depends(admin_or_above)):
+    grant = db.get(AccessGrant, grant_id)
+    if not grant:
+        _not_found("Grant")
+    db.delete(grant)
+    db.commit()
+    return {"ok": True}
+
+
 @router.post("/overrides")
 def create_override(payload: OverrideCreate, db: Session = Depends(get_db), actor: User = Depends(admin_or_above)):
     override = ScheduleOverride(
@@ -120,8 +144,40 @@ def create_override(payload: OverrideCreate, db: Session = Depends(get_db), acto
         created_by=actor.id,
     )
     db.add(override)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status.HTTP_409_CONFLICT, "An override already exists for that parent/camera/date")
     return {"id": override.id}
+
+
+@router.get("/overrides")
+def list_overrides(db: Session = Depends(get_db), _: User = Depends(admin_or_above)):
+    overrides = db.query(ScheduleOverride).order_by(ScheduleOverride.date.desc()).all()
+    return [
+        {
+            "id": o.id,
+            "user_id": o.user_id,
+            "camera_id": o.camera_id,
+            "date": o.date.isoformat(),
+            "kind": o.kind.value,
+            "start_time": o.start_time.isoformat() if o.start_time else None,
+            "end_time": o.end_time.isoformat() if o.end_time else None,
+            "reason": o.reason,
+        }
+        for o in overrides
+    ]
+
+
+@router.delete("/overrides/{override_id}")
+def delete_override(override_id: str, db: Session = Depends(get_db), _: User = Depends(admin_or_above)):
+    override = db.get(ScheduleOverride, override_id)
+    if not override:
+        _not_found("Override")
+    db.delete(override)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/cameras")
@@ -133,17 +189,36 @@ def list_cameras(db: Session = Depends(get_db), _: User = Depends(admin_or_above
 
 
 @router.post("/cameras")
-def create_camera(
-    label: str,
-    mediamtx_path: str,
-    rtsp_source: str,
-    db: Session = Depends(get_db),
-    _: User = Depends(super_admin_only),
-):
-    camera = Camera(label=label, mediamtx_path=mediamtx_path, rtsp_source=rtsp_source)
+def create_camera(payload: CameraCreate, db: Session = Depends(get_db), _: User = Depends(super_admin_only)):
+    camera = Camera(label=payload.label, mediamtx_path=payload.mediamtx_path, rtsp_source=payload.rtsp_source)
     db.add(camera)
     db.commit()
     return {"id": camera.id}
+
+
+@router.patch("/cameras/{camera_id}")
+def update_camera(
+    camera_id: str, payload: CameraUpdate, db: Session = Depends(get_db), _: User = Depends(super_admin_only)
+):
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        _not_found("Camera")
+    if payload.label is not None:
+        camera.label = payload.label
+    if payload.is_active is not None:
+        camera.is_active = payload.is_active
+    db.commit()
+    return {"ok": True}
+
+
+@router.delete("/cameras/{camera_id}")
+def delete_camera(camera_id: str, db: Session = Depends(get_db), _: User = Depends(super_admin_only)):
+    camera = db.get(Camera, camera_id)
+    if not camera:
+        _not_found("Camera")
+    db.delete(camera)
+    db.commit()
+    return {"ok": True}
 
 
 @router.get("/audit")

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Window - Cameras</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <div class="shell">
+    <nav class="admin-nav">
+      <div class="brand">Access Window</div>
+      <div class="role-tag" id="nav-role">...</div>
+      <a href="/admin/">Dashboard</a>
+      <a href="/admin/parents.html">Parents</a>
+      <a href="/admin/grants.html">Schedules</a>
+      <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
+      <a href="/admin/admins.html" data-super-admin-only>Admins</a>
+      <a href="/admin/audit.html">Audit Log</a>
+      <div class="spacer"></div>
+      <button class="logout" onclick="logout()">Sign out</button>
+    </nav>
+    <main>
+      <h1>Cameras</h1>
+      <p class="lede"><code>mediamtx_path</code> must exactly match a key under <code>paths:</code> in <code>mediamtx.yml</code>. The RTSP source here is record-keeping only right now - MediaMTX reads its own config file, not this field, to actually pull the stream.</p>
+
+      <form class="panel" id="camera-form">
+        <label for="label">Label</label>
+        <input type="text" id="label" placeholder="e.g. Toddler Room" required>
+        <label for="mediamtx_path">MediaMTX path</label>
+        <input type="text" id="mediamtx_path" placeholder="e.g. toddler-room" required>
+        <label for="rtsp_source">RTSP source (reference only)</label>
+        <input type="text" id="rtsp_source" placeholder="rtsp://user:pass@ip:7447/...">
+        <button type="submit">Add camera</button>
+        <p class="msg" id="camera-msg"></p>
+      </form>
+
+      <h2>Existing cameras</h2>
+      <div class="table-wrap">
+        <table id="cameras-table">
+          <thead><tr><th>Label</th><th>MediaMTX path</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+  <script>
+    async function loadCameras() {
+      const res = await apiFetch("/api/admin/cameras");
+      const cameras = await res.json();
+      const tbody = document.querySelector("#cameras-table tbody");
+      tbody.innerHTML = cameras
+        .map(
+          (c) => `
+        <tr>
+          <td>${c.label}</td>
+          <td class="mono">${c.mediamtx_path}</td>
+          <td>${c.is_active ? '<span class="pill">active</span>' : '<span class="pill inactive">disabled</span>'}</td>
+          <td class="actions">
+            <button class="tiny secondary" onclick="toggleCamera('${c.id}', ${!c.is_active})">${c.is_active ? "Disable" : "Enable"}</button>
+            <button class="tiny secondary" onclick="removeCamera('${c.id}')">Delete</button>
+          </td>
+        </tr>`
+        )
+        .join("") || `<tr><td colspan="4">No cameras yet.</td></tr>`;
+    }
+
+    async function toggleCamera(id, nextActive) {
+      await apiFetch(`/api/admin/cameras/${id}`, { method: "PATCH", body: { is_active: nextActive } });
+      loadCameras();
+    }
+
+    async function removeCamera(id) {
+      if (!confirm("Delete this camera? Any schedules for it will be removed too.")) return;
+      await apiFetch(`/api/admin/cameras/${id}`, { method: "DELETE" });
+      loadCameras();
+    }
+
+    document.getElementById("camera-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const msg = document.getElementById("camera-msg");
+      const res = await apiFetch("/api/admin/cameras", {
+        method: "POST",
+        body: {
+          label: document.getElementById("label").value,
+          mediamtx_path: document.getElementById("mediamtx_path").value,
+          rtsp_source: document.getElementById("rtsp_source").value,
+        },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showMsg(msg, body.detail || "Could not add camera.", true);
+        return;
+      }
+      showMsg(msg, "Camera added.", false);
+      document.getElementById("camera-form").reset();
+      loadCameras();
+    });
+
+    (async () => {
+      const me = await requireAdmin();
+      if (me.role !== "super_admin") {
+        document.querySelector("main").innerHTML = "<h1>Cameras</h1><p>Only a super admin can manage cameras.</p>";
+        return;
+      }
+      loadCameras();
+    })();
+  </script>
+</body>
+</html>

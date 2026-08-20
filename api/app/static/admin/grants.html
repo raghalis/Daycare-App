@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Window - Schedules</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <div class="shell">
+    <nav class="admin-nav">
+      <div class="brand">Access Window</div>
+      <div class="role-tag" id="nav-role">...</div>
+      <a href="/admin/">Dashboard</a>
+      <a href="/admin/parents.html">Parents</a>
+      <a href="/admin/grants.html">Schedules</a>
+      <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
+      <a href="/admin/admins.html" data-super-admin-only>Admins</a>
+      <a href="/admin/audit.html">Audit Log</a>
+      <div class="spacer"></div>
+      <button class="logout" onclick="logout()">Sign out</button>
+    </nav>
+    <main>
+      <h1>Schedules</h1>
+      <p class="lede">Recurring weekly windows. For a one-off exception (sick day, unscheduled day present), use Overrides instead of editing this.</p>
+
+      <form class="panel" id="grant-form">
+        <label for="user_id">Parent</label>
+        <select id="user_id" required></select>
+        <label for="camera_id">Camera</label>
+        <select id="camera_id" required></select>
+        <label>Days</label>
+        <div class="days" id="days"></div>
+        <div class="row">
+          <div>
+            <label for="start_time">Start</label>
+            <input type="time" id="start_time" value="07:00" required>
+          </div>
+          <div>
+            <label for="end_time">End</label>
+            <input type="time" id="end_time" value="18:00" required>
+          </div>
+        </div>
+        <button type="submit">Add schedule</button>
+        <p class="msg" id="grant-msg"></p>
+      </form>
+
+      <h2>Existing schedules</h2>
+      <div class="table-wrap">
+        <table id="grants-table">
+          <thead><tr><th>Parent</th><th>Camera</th><th>Days</th><th>Hours</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+  <script>
+    let usersById = {}, camerasById = {};
+
+    function renderDayCheckboxes() {
+      const container = document.getElementById("days");
+      container.innerHTML = DAY_LABELS.map(
+        (label, i) => `<label><input type="checkbox" value="${i}" checked> ${label}</label>`
+      ).join("");
+    }
+
+    function selectedDaysMask() {
+      let mask = 0;
+      document.querySelectorAll("#days input:checked").forEach((cb) => (mask |= 1 << Number(cb.value)));
+      return mask;
+    }
+
+    async function loadLookups() {
+      const [usersRes, camerasRes] = await Promise.all([
+        apiFetch("/api/admin/users"),
+        apiFetch("/api/admin/cameras"),
+      ]);
+      const users = (await usersRes.json()).filter((u) => u.role === "parent");
+      const cameras = await camerasRes.json();
+      usersById = Object.fromEntries(users.map((u) => [u.id, u]));
+      camerasById = Object.fromEntries(cameras.map((c) => [c.id, c]));
+
+      document.getElementById("user_id").innerHTML = users
+        .map((u) => `<option value="${u.id}">${u.display_name} (${u.email})</option>`)
+        .join("") || `<option disabled>No parents yet - invite one first</option>`;
+      document.getElementById("camera_id").innerHTML = cameras
+        .map((c) => `<option value="${c.id}">${c.label}</option>`)
+        .join("") || `<option disabled>No cameras yet</option>`;
+    }
+
+    async function loadGrants() {
+      const res = await apiFetch("/api/admin/grants");
+      const grants = await res.json();
+      const tbody = document.querySelector("#grants-table tbody");
+      tbody.innerHTML = grants
+        .map(
+          (g) => `
+        <tr>
+          <td>${usersById[g.user_id]?.display_name ?? g.user_id}</td>
+          <td>${camerasById[g.camera_id]?.label ?? g.camera_id}</td>
+          <td>${daysOfWeekToLabel(g.days_of_week)}</td>
+          <td>${g.start_time.slice(0, 5)} - ${g.end_time.slice(0, 5)}</td>
+          <td class="actions"><button class="tiny secondary" onclick="removeGrant('${g.id}')">Remove</button></td>
+        </tr>`
+        )
+        .join("") || `<tr><td colspan="5">No schedules yet.</td></tr>`;
+    }
+
+    async function removeGrant(id) {
+      if (!confirm("Remove this schedule?")) return;
+      await apiFetch(`/api/admin/grants/${id}`, { method: "DELETE" });
+      loadGrants();
+    }
+
+    document.getElementById("grant-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const msg = document.getElementById("grant-msg");
+      const res = await apiFetch("/api/admin/grants", {
+        method: "POST",
+        body: {
+          user_id: document.getElementById("user_id").value,
+          camera_id: document.getElementById("camera_id").value,
+          days_of_week: selectedDaysMask(),
+          start_time: document.getElementById("start_time").value,
+          end_time: document.getElementById("end_time").value,
+        },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showMsg(msg, body.detail || "Could not add schedule.", true);
+        return;
+      }
+      showMsg(msg, "Schedule added.", false);
+      loadGrants();
+    });
+
+    (async () => {
+      await requireAdmin();
+      renderDayCheckboxes();
+      await loadLookups();
+      await loadGrants();
+    })();
+  </script>
+</body>
+</html>

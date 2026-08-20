@@ -19,7 +19,11 @@
   <div id="end-card"></div>
 
   <script>
-    const TOKEN_REFRESH_MS = 30_000;
+    // Well under STREAM_TOKEN_TTL_SECONDS (3600s default) - the token isn't
+    // what enforces the cutoff (MediaMTX re-checks the real schedule via
+    // /internal/validate on every segment regardless), so it can be long-
+    // lived and refreshed rarely instead of reloading the player constantly.
+    const TOKEN_REFRESH_MS = 20 * 60 * 1000;
     const STATUS_POLL_MS = 15_000;
     let cameraId = null;
     let hls = null;
@@ -60,7 +64,13 @@
     function playStream(url) {
       const video = document.getElementById("player");
       if (window.Hls && Hls.isSupported()) {
-        if (hls) hls.destroy();
+        if (hls) {
+          // Swap the source on the existing player instead of tearing the
+          // whole thing down - a full destroy/recreate every refresh is
+          // what was actually causing the buffering, not bandwidth.
+          hls.loadSource(url);
+          return;
+        }
         hls = new Hls();
         hls.loadSource(url);
         hls.attachMedia(video);

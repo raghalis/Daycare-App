@@ -12,9 +12,10 @@ scaffolded so far.
 - `api/` - FastAPI backend: login, invites, stream-token issuance, the
   MediaMTX auth hook, admin endpoints, and camera-health polling with
   Pushover alerts.
-- `api/app/static/` - a minimal login + single-camera viewer page, enough to
-  prove the full gate-flow end to end. No admin UI frontend yet (see "What's
-  next").
+- `api/app/static/` - login, single-camera viewer, and an `admin/` section
+  (parents, schedules, overrides, cameras, admins, audit log) wired to the
+  `/api/admin/*` routes. No build step - plain HTML/JS, same as the rest of
+  the app.
 - `.github/workflows/build.yml` - builds `api/` and pushes it to GHCR on
   every push to `main`, so Unraid only ever pulls a finished image.
 - `unraid-templates/` - the two containers as Unraid "Add Container"
@@ -71,9 +72,10 @@ automatically whenever CI publishes a new `:latest`.
    `docker exec access-window-api python -m app.seed`
    (reads `SEED_SUPER_ADMIN_EMAIL`/`_PASSWORD` from the container's env -
    set those two vars in the template first, or pass them inline for that
-   one command). Every other account - including your spouse's `admin`
-   account - gets created by that super admin calling
-   `POST /api/admin/invites`, not through this script.
+   one command). Log in with it and you'll land on `/admin/` - every other
+   account, including your spouse's `admin` account, gets created from
+   there (Admins page for admins, Parents page for parents), not through
+   this script.
 5. Updating later is just the normal Unraid flow: when CI publishes a new
    image, both containers show "Update Ready" in the Docker tab - click
    Apply. No SSH, no manual pulls.
@@ -133,9 +135,9 @@ Following the design doc's build order, roughly in this shape:
 - [x] Camera health polling + Pushover alerts
 - [x] Bare viewer page (single camera, HLS, countdown banner, end/offline card)
 - [x] CI build/publish to GHCR + Unraid templates
-- [ ] Admin UI frontend (parents, schedule editor, overrides calendar, audit
-      log, camera/admin management) - the backend routes under
-      `/api/admin/*` already exist; this is wiring a UI to them
+- [x] Admin UI (parents + invites, schedules, overrides, cameras, admins,
+      audit log) - functional but plain; no calendar widget for overrides,
+      no bulk actions, no schedule "diff" view
 - [ ] Multi-camera viewer page (current one assumes one camera per parent)
 - [ ] `next_window_start` computation for the "come back at..." messaging
       (currently only `window_end` is calculated)

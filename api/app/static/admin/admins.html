@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Window - Admins</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <div class="shell">
+    <nav class="admin-nav">
+      <div class="brand">Access Window</div>
+      <div class="role-tag" id="nav-role">...</div>
+      <a href="/admin/">Dashboard</a>
+      <a href="/admin/parents.html">Parents</a>
+      <a href="/admin/grants.html">Schedules</a>
+      <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
+      <a href="/admin/admins.html" data-super-admin-only>Admins</a>
+      <a href="/admin/audit.html">Audit Log</a>
+      <div class="spacer"></div>
+      <button class="logout" onclick="logout()">Sign out</button>
+    </nav>
+    <main>
+      <h1>Admins</h1>
+      <p class="lede">Admin accounts can manage parents, schedules, and overrides. Only super admins can reach this page, manage cameras, or invite other admins.</p>
+
+      <form class="panel" id="invite-form">
+        <label for="email">Email</label>
+        <input type="email" id="email" required>
+        <label for="display_name">Display name</label>
+        <input type="text" id="display_name" required>
+        <label for="role">Role</label>
+        <select id="role">
+          <option value="admin">Admin</option>
+          <option value="super_admin">Super admin</option>
+        </select>
+        <button type="submit">Send invite</button>
+        <p class="msg" id="invite-msg"></p>
+        <div class="invite-link hidden" id="invite-link"></div>
+      </form>
+
+      <h2>Existing admins</h2>
+      <div class="table-wrap">
+        <table id="admins-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Pushover key</th><th>Actions</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+  <script>
+    async function loadAdmins() {
+      const res = await apiFetch("/api/admin/users");
+      const admins = (await res.json()).filter((u) => u.role === "admin" || u.role === "super_admin");
+      const tbody = document.querySelector("#admins-table tbody");
+      tbody.innerHTML = admins
+        .map(
+          (u) => `
+        <tr>
+          <td>${u.display_name}</td>
+          <td>${u.email}</td>
+          <td><span class="pill role">${u.role.replace("_", " ")}</span></td>
+          <td>${u.is_active ? '<span class="pill">active</span>' : '<span class="pill inactive">disabled</span>'}${u.has_password ? "" : ' <span class="pill role">invite pending</span>'}</td>
+          <td>
+            <input type="text" class="tiny-input" value="${u.pushover_user_key ?? ""}" placeholder="not set"
+                   style="width:140px;font-size:12px;padding:4px 6px;"
+                   onchange="setPushoverKey('${u.id}', this.value)">
+          </td>
+          <td class="actions"><button class="tiny secondary" onclick="toggleActive('${u.id}', ${!u.is_active})">${u.is_active ? "Disable" : "Enable"}</button></td>
+        </tr>`
+        )
+        .join("") || `<tr><td colspan="6">No other admins yet.</td></tr>`;
+    }
+
+    async function toggleActive(userId, nextActive) {
+      await apiFetch(`/api/admin/users/${userId}`, { method: "PATCH", body: { is_active: nextActive } });
+      loadAdmins();
+    }
+
+    async function setPushoverKey(userId, value) {
+      await apiFetch(`/api/admin/users/${userId}`, { method: "PATCH", body: { pushover_user_key: value } });
+    }
+
+    document.getElementById("invite-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const msg = document.getElementById("invite-msg");
+      const linkBox = document.getElementById("invite-link");
+      linkBox.classList.add("hidden");
+
+      const res = await apiFetch("/api/admin/invites", {
+        method: "POST",
+        body: {
+          email: document.getElementById("email").value,
+          display_name: document.getElementById("display_name").value,
+          role: document.getElementById("role").value,
+        },
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        showMsg(msg, body.detail || "Could not create invite.", true);
+        return;
+      }
+      showMsg(msg, "Invite created - copy the link below and send it to them.", false);
+      linkBox.textContent = window.location.origin + body.invite_url_path;
+      linkBox.classList.remove("hidden");
+      document.getElementById("invite-form").reset();
+      loadAdmins();
+    });
+
+    (async () => {
+      const me = await requireAdmin();
+      if (me.role !== "super_admin") {
+        document.querySelector("main").innerHTML = "<h1>Admins</h1><p>Only a super admin can manage other admins.</p>";
+        return;
+      }
+      loadAdmins();
+    })();
+  </script>
+</body>
+</html>

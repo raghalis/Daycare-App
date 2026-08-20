@@ -31,7 +31,8 @@
         body: JSON.stringify({ email, password }),
       });
       if (res.ok) {
-        window.location.href = "/viewer.html";
+        const body = await res.json();
+        window.location.href = body.role === "parent" ? "/viewer.html" : "/admin/";
         return;
       }
       const body = await res.json().catch(() => ({}));

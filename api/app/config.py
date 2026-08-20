@@ -13,13 +13,17 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = True
 
     stream_token_secret: str
-    stream_token_ttl_seconds: int = 90
+    # Not the thing enforcing the cutoff (evaluate_access() re-runs against
+    # the real schedule on every MediaMTX segment request regardless of this)
+    # - it only bounds how long a captured token could be replayed. Long
+    # enough here means the viewer never needs a disruptive mid-play reload.
+    stream_token_ttl_seconds: int = 3600
 
     invite_ttl_days: int = 7
 
     app_timezone: str = "America/Los_Angeles"
 
-    mediamtx_api_url: str = "http://mediamtx:9997"
+    mediamtx_api_url: str = "http://access-window-mediamtx:9997"
     mediamtx_hls_base_url: str
 
     pushover_app_token: str | None = None

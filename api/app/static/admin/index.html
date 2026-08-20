@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Window - Admin</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <div class="shell">
+    <nav class="admin-nav">
+      <div class="brand">Access Window</div>
+      <div class="role-tag" id="nav-role">...</div>
+      <a href="/admin/">Dashboard</a>
+      <a href="/admin/parents.html">Parents</a>
+      <a href="/admin/grants.html">Schedules</a>
+      <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
+      <a href="/admin/admins.html" data-super-admin-only>Admins</a>
+      <a href="/admin/audit.html">Audit Log</a>
+      <div class="spacer"></div>
+      <button class="logout" onclick="logout()">Sign out</button>
+    </nav>
+    <main>
+      <h1>Dashboard</h1>
+      <p class="lede">Quick status. Manage schedules, parents, and cameras from the sections on the left.</p>
+
+      <div class="stat-row" id="stats"></div>
+
+      <h2>Recent activity</h2>
+      <div class="table-wrap">
+        <table id="recent-table">
+          <thead><tr><th>When</th><th>Event</th><th>Camera</th><th>IP</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+  <script>
+    async function load() {
+      await requireAdmin();
+
+      const [usersRes, camerasRes, auditRes] = await Promise.all([
+        apiFetch("/api/admin/users"),
+        apiFetch("/api/admin/cameras"),
+        apiFetch("/api/admin/audit"),
+      ]);
+      const users = await usersRes.json();
+      const cameras = await camerasRes.json();
+      const audit = await auditRes.json();
+
+      const parents = users.filter((u) => u.role === "parent");
+      const activeParents = parents.filter((u) => u.is_active);
+      const offlineCameras = new Set();
+      for (const h of audit.camera_health_events) {
+        if (h.event === "offline") offlineCameras.add(h.camera_id);
+        if (h.event === "recovered") offlineCameras.delete(h.camera_id);
+      }
+
+      const camerasById = Object.fromEntries(cameras.map((c) => [c.id, c]));
+      const stats = document.getElementById("stats");
+      stats.innerHTML = [
+        ["Parents", parents.length],
+        ["Active parents", activeParents.length],
+        ["Cameras", cameras.length],
+        ["Cameras offline", offlineCameras.size],
+      ]
+        .map(([l, n]) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`)
+        .join("");
+
+      const tbody = document.querySelector("#recent-table tbody");
+      const rows = audit.session_events.slice(0, 20).map((e) => {
+        const cam = e.camera_id ? camerasById[e.camera_id]?.label ?? e.camera_id : "-";
+        return `<tr><td>${new Date(e.occurred_at).toLocaleString()}</td><td>${e.event}</td><td>${cam}</td><td class="mono">${e.ip_address ?? "-"}</td></tr>`;
+      });
+      tbody.innerHTML = rows.join("") || `<tr><td colspan="4">Nothing yet.</td></tr>`;
+    }
+
+    load();
+  </script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Window - Audit Log</title>
+<link rel="stylesheet" href="/admin/admin.css">
+</head>
+<body>
+  <div class="shell">
+    <nav class="admin-nav">
+      <div class="brand">Access Window</div>
+      <div class="role-tag" id="nav-role">...</div>
+      <a href="/admin/">Dashboard</a>
+      <a href="/admin/parents.html">Parents</a>
+      <a href="/admin/grants.html">Schedules</a>
+      <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
+      <a href="/admin/admins.html" data-super-admin-only>Admins</a>
+      <a href="/admin/audit.html">Audit Log</a>
+      <div class="spacer"></div>
+      <button class="logout" onclick="logout()">Sign out</button>
+    </nav>
+    <main>
+      <h1>Audit log</h1>
+      <p class="lede">Last 200 login/token events and last 100 camera health events. Read-only.</p>
+
+      <h2>Sessions</h2>
+      <div class="table-wrap">
+        <table id="session-table">
+          <thead><tr><th>When</th><th>Event</th><th>Parent</th><th>Camera</th><th>IP</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2>Camera health</h2>
+      <div class="table-wrap">
+        <table id="health-table">
+          <thead><tr><th>When</th><th>Camera</th><th>Event</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </main>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+  <script>
+    async function load() {
+      await requireAdmin();
+
+      const [usersRes, camerasRes, auditRes] = await Promise.all([
+        apiFetch("/api/admin/users"),
+        apiFetch("/api/admin/cameras"),
+        apiFetch("/api/admin/audit"),
+      ]);
+      const usersById = Object.fromEntries((await usersRes.json()).map((u) => [u.id, u]));
+      const camerasById = Object.fromEntries((await camerasRes.json()).map((c) => [c.id, c]));
+      const audit = await auditRes.json();
+
+      document.querySelector("#session-table tbody").innerHTML =
+        audit.session_events
+          .map(
+            (e) => `
+        <tr>
+          <td>${new Date(e.occurred_at).toLocaleString()}</td>
+          <td>${e.event}</td>
+          <td>${e.user_id ? usersById[e.user_id]?.display_name ?? e.user_id : "-"}</td>
+          <td>${e.camera_id ? camerasById[e.camera_id]?.label ?? e.camera_id : "-"}</td>
+          <td class="mono">${e.ip_address ?? "-"}</td>
+        </tr>`
+          )
+          .join("") || `<tr><td colspan="5">Nothing yet.</td></tr>`;
+
+      document.querySelector("#health-table tbody").innerHTML =
+        audit.camera_health_events
+          .map(
+            (h) => `
+        <tr>
+          <td>${new Date(h.occurred_at).toLocaleString()}</td>
+          <td>${camerasById[h.camera_id]?.label ?? h.camera_id}</td>
+          <td><span class="pill ${h.event === "offline" ? "inactive" : ""}">${h.event}</span></td>
+        </tr>`
+          )
+          .join("") || `<tr><td colspan="3">Nothing yet.</td></tr>`;
+    }
+
+    load();
+  </script>
+</body>
+</html>
