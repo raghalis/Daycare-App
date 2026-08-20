@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Window - Set your password</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; max-width: 380px; margin: 8vh auto 0; padding: 0 16px 24px; color: #12181f; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  p.lede { color: #5b6875; font-size: 13.5px; margin-top: 0; }
+  /* 16px minimum keeps iOS Safari from auto-zooming in when a field is tapped */
+  input { display: block; width: 100%; padding: 12px; margin: 8px 0; font-size: 16px; }
+  button { width: 100%; padding: 12px; margin-top: 4px; font-size: 16px; cursor: pointer; min-height: 44px; }
+  #msg { color: #a24c39; font-size: 14px; min-height: 1.2em; }
+  #msg.ok { color: #3f8562; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div id="loading">Checking your invite link...</div>
+
+  <div id="form-area" class="hidden">
+    <h1>Set your password</h1>
+    <p class="lede" id="for-email"></p>
+    <form id="accept-form">
+      <input type="password" id="password" placeholder="New password" autocomplete="new-password" required minlength="8">
+      <input type="password" id="password2" placeholder="Confirm password" autocomplete="new-password" required minlength="8">
+      <button type="submit">Set password &amp; sign in</button>
+      <p id="msg"></p>
+    </form>
+  </div>
+
+  <div id="invalid" class="hidden">
+    <h1>This link isn't valid</h1>
+    <p class="lede" id="invalid-reason">It may have already been used, or expired. Ask whoever invited you for a fresh link.</p>
+  </div>
+
+  <script>
+    const inviteId = new URLSearchParams(window.location.search).get("id");
+
+    async function init() {
+      if (!inviteId) {
+        showInvalid("Missing invite link.");
+        return;
+      }
+      const res = await fetch(`/api/invite/${inviteId}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showInvalid(body.detail);
+        return;
+      }
+      const invite = await res.json();
+      document.getElementById("loading").classList.add("hidden");
+      document.getElementById("for-email").textContent = `For ${invite.email}`;
+      document.getElementById("form-area").classList.remove("hidden");
+    }
+
+    function showInvalid(reason) {
+      document.getElementById("loading").classList.add("hidden");
+      if (reason) document.getElementById("invalid-reason").textContent = reason;
+      document.getElementById("invalid").classList.remove("hidden");
+    }
+
+    document.getElementById("accept-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const msg = document.getElementById("msg");
+      const password = document.getElementById("password").value;
+      const password2 = document.getElementById("password2").value;
+      if (password !== password2) {
+        msg.textContent = "Passwords don't match.";
+        msg.className = "";
+        return;
+      }
+
+      const res = await fetch(`/api/invite/${inviteId}/accept`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        msg.textContent = body.detail || "Could not set your password.";
+        msg.className = "";
+        return;
+      }
+      msg.textContent = "Password set - taking you to sign in...";
+      msg.className = "ok";
+      setTimeout(() => (window.location.href = "/login.html"), 1200);
+    });
+
+    init();
+  </script>
+</body>
+</html>

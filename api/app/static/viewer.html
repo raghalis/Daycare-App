@@ -6,17 +6,49 @@
 <title>Access Window - Viewer</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 4vh auto; padding: 0 16px; color: #12181f; }
-  video { width: 100%; background: #12181f; border-radius: 6px; display: block; }
-  #banner { background: #f0dcc5; color: #7a4419; padding: 8px 12px; border-radius: 4px; margin: 10px 0; display: none; font-size: 14px; }
-  #end-card { display: none; padding: 60px 20px; text-align: center; background: #12181f; color: #e7ebef; border-radius: 6px; font-size: 15px; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; max-width: 720px; margin: 3vh auto; padding: 0 16px 24px; color: #12181f; }
+  h1 { font-size: 1.2rem; margin: 0 0 10px; }
+
+  #banner { background: #f0dcc5; color: #7a4419; padding: 8px 12px; border-radius: 4px; margin: 0 0 10px; display: none; font-size: 13.5px; }
+
+  #stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #12181f; border-radius: 6px; overflow: hidden; }
+  #player { width: 100%; height: 100%; display: block; object-fit: contain; }
+  #end-card {
+    display: none; position: absolute; inset: 0; padding: 20px; text-align: center;
+    color: #e7ebef; font-size: 14.5px; align-items: center; justify-content: center;
+  }
+
+  #selector {
+    display: flex; gap: 8px; margin-top: 12px; overflow-x: auto; padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .cam-btn {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+    padding: 10px 14px; min-height: 44px; border-radius: 999px;
+    background: #e6e9ec; border: 1px solid #c9d0d6; color: #12181f;
+    font-size: 13.5px; cursor: pointer; white-space: nowrap;
+  }
+  .cam-btn.active { background: #12181f; color: #fff; border-color: #12181f; }
+  .cam-btn .dot { width: 8px; height: 8px; border-radius: 50%; background: #93a0ac; flex-shrink: 0; }
+  .cam-btn .dot.online { background: #3f8562; }
+  .cam-btn .dot.offline { background: #a24c39; }
+
+  #empty { color: #5b6875; font-size: 14px; }
+  .hidden { display: none !important; }
 </style>
 </head>
 <body>
   <h1 id="camera-label">Loading...</h1>
   <div id="banner"></div>
-  <video id="player" controls autoplay muted playsinline></video>
-  <div id="end-card"></div>
+
+  <div id="stage" class="hidden">
+    <video id="player" controls autoplay muted playsinline></video>
+    <div id="end-card"></div>
+  </div>
+  <p id="empty" class="hidden">No cameras assigned yet.</p>
+
+  <div id="selector"></div>
 
   <script>
     // Well under STREAM_TOKEN_TTL_SECONDS (3600s default) - the token isn't
@@ -25,8 +57,11 @@
     // lived and refreshed rarely instead of reloading the player constantly.
     const TOKEN_REFRESH_MS = 20 * 60 * 1000;
     const STATUS_POLL_MS = 15_000;
-    let cameraId = null;
+
+    let cameras = [];
+    let activeCameraId = null;
     let hls = null;
+    let tokenRefreshTimer = null;
 
     async function init() {
       const res = await fetch("/api/me");
@@ -35,26 +70,58 @@
         return;
       }
       const me = await res.json();
-      if (!me.cameras.length) {
-        document.getElementById("camera-label").textContent = "No camera assigned yet.";
+      cameras = me.cameras;
+
+      if (!cameras.length) {
+        document.getElementById("camera-label").textContent = "Viewer";
+        document.getElementById("empty").classList.remove("hidden");
         return;
       }
-      cameraId = me.cameras[0].id;
-      document.getElementById("camera-label").textContent = me.cameras[0].label;
 
+      document.getElementById("stage").classList.remove("hidden");
+      renderSelector();
+      selectCamera(cameras[0].id);
+
+      pollAllStatuses();
+      setInterval(pollAllStatuses, STATUS_POLL_MS);
+    }
+
+    function renderSelector() {
+      const el = document.getElementById("selector");
+      if (cameras.length <= 1) {
+        el.classList.add("hidden");
+        return;
+      }
+      el.innerHTML = cameras
+        .map(
+          (c) => `<button class="cam-btn" data-id="${c.id}" onclick="selectCamera('${c.id}')">
+            <span class="dot" id="dot-${c.id}"></span>${c.label}
+          </button>`
+        )
+        .join("");
+    }
+
+    function selectCamera(id) {
+      activeCameraId = id;
+      document.getElementById("camera-label").textContent = cameras.find((c) => c.id === id)?.label ?? "";
+      document.querySelectorAll(".cam-btn").forEach((b) => b.classList.toggle("active", b.dataset.id === id));
+      document.getElementById("banner").style.display = "none";
+
+      clearInterval(tokenRefreshTimer);
       refreshToken();
-      setInterval(refreshToken, TOKEN_REFRESH_MS);
-      setInterval(pollStatus, STATUS_POLL_MS);
+      tokenRefreshTimer = setInterval(refreshToken, TOKEN_REFRESH_MS);
     }
 
     async function refreshToken() {
+      const forCamera = activeCameraId;
       const res = await fetch("/api/stream-token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ camera_id: cameraId }),
+        body: JSON.stringify({ camera_id: forCamera }),
       });
+      if (forCamera !== activeCameraId) return; // switched cameras while this was in flight
       if (!res.ok) {
-        showEndCard("Viewing hours have ended.");
+        showEndCard("Viewing hours have ended for this camera.");
         return;
       }
       const data = await res.json();
@@ -62,7 +129,9 @@
     }
 
     function playStream(url) {
+      document.getElementById("end-card").style.display = "none";
       const video = document.getElementById("player");
+      video.style.display = "block";
       if (window.Hls && Hls.isSupported()) {
         if (hls) {
           // Swap the source on the existing player instead of tearing the
@@ -79,20 +148,30 @@
       }
     }
 
-    async function pollStatus() {
-      const res = await fetch(`/api/session-status?camera_id=${cameraId}`);
-      if (!res.ok) return;
-      const status = await res.json();
+    async function pollAllStatuses() {
+      const results = await Promise.all(
+        cameras.map(async (cam) => {
+          const res = await fetch(`/api/session-status?camera_id=${cam.id}`);
+          if (!res.ok) return null;
+          return { id: cam.id, status: await res.json() };
+        })
+      );
+      results.filter(Boolean).forEach(({ id, status }) => {
+        const dot = document.getElementById(`dot-${id}`);
+        if (dot) dot.className = "dot " + (!status.camera_online ? "offline" : status.allowed ? "online" : "");
+        if (id === activeCameraId) applyActiveStatus(status);
+      });
+    }
 
+    function applyActiveStatus(status) {
       if (!status.camera_online) {
         showEndCard("This camera is temporarily offline - we've been notified.");
         return;
       }
       if (!status.allowed) {
-        showEndCard("Viewing hours have ended.");
+        showEndCard("Viewing hours have ended for this camera.");
         return;
       }
-
       const banner = document.getElementById("banner");
       if (status.window_end) {
         const end = new Date(status.window_end);
@@ -100,15 +179,18 @@
         if (minutesLeft <= 2) {
           banner.style.display = "block";
           banner.textContent = `Viewing ends at ${end.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+          return;
         }
       }
+      banner.style.display = "none";
     }
 
     function showEndCard(message) {
-      document.getElementById("player").style.display = "none";
-      document.getElementById("banner").style.display = "none";
+      const player = document.getElementById("player");
       const card = document.getElementById("end-card");
-      card.style.display = "block";
+      player.style.display = "none";
+      document.getElementById("banner").style.display = "none";
+      card.style.display = "flex";
       card.textContent = message;
       if (hls) {
         hls.destroy();

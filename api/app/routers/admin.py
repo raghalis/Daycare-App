@@ -26,6 +26,7 @@ from ..schemas import (
     OverrideCreate,
     UserUpdate,
 )
+from ..timeutil import to_utc_iso
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -57,7 +58,32 @@ def create_invite(payload: AdminInviteRequest, db: Session = Depends(get_db), ac
     )
     db.add(invite)
     db.commit()
-    return {"invite_id": invite.id, "invite_url_path": f"/invite/{invite.id}"}
+    return {"user_id": user.id, "invite_id": invite.id, "invite_url_path": f"/accept-invite.html?id={invite.id}"}
+
+
+@router.post("/users/{user_id}/reset-invite")
+def reset_invite(user_id: str, db: Session = Depends(get_db), actor: User = Depends(admin_or_above)):
+    """
+    For a forgotten password, or to cut off a device/account that may be
+    compromised: clears the current password (no one can log in with the old
+    one anymore) and issues a fresh invite link to set a new one.
+    """
+    user = db.get(User, user_id)
+    if not user:
+        _not_found("User")
+    if user.role != Role.parent and actor.role != Role.super_admin:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Only a super admin can reset another admin's access")
+
+    user.password_hash = None
+    invite = Invite(
+        email=user.email,
+        role=user.role,
+        created_by=actor.id,
+        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.invite_ttl_days),
+    )
+    db.add(invite)
+    db.commit()
+    return {"invite_id": invite.id, "invite_url_path": f"/accept-invite.html?id={invite.id}"}
 
 
 @router.get("/users")
@@ -232,13 +258,13 @@ def audit_log(db: Session = Depends(get_db), _: User = Depends(admin_or_above)):
                 "user_id": e.user_id,
                 "camera_id": e.camera_id,
                 "event": e.event.value,
-                "occurred_at": e.occurred_at.isoformat(),
+                "occurred_at": to_utc_iso(e.occurred_at),
                 "ip_address": e.ip_address,
             }
             for e in events
         ],
         "camera_health_events": [
-            {"id": h.id, "camera_id": h.camera_id, "event": h.event.value, "occurred_at": h.occurred_at.isoformat()}
+            {"id": h.id, "camera_id": h.camera_id, "event": h.event.value, "occurred_at": to_utc_iso(h.occurred_at)}
             for h in health
         ],
     }

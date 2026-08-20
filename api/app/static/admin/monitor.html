@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Access Window - Live View</title>
+<link rel="stylesheet" href="/admin/admin.css">
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+<style>
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .cam-card { background: var(--card); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .cam-card .head { padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
+  .cam-card .head span.name { font-weight: 600; font-size: 13.5px; }
+  .cam-card video { width: 100%; aspect-ratio: 16 / 9; background: #12181f; display: block; }
+  .cam-card .placeholder {
+    width: 100%; aspect-ratio: 16 / 9; background: #12181f; color: #93a0ac;
+    display: flex; align-items: center; justify-content: center; font-size: 12.5px; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="shell">
+    <nav class="admin-nav">
+      <div class="brand">Access Window</div>
+      <div class="role-tag" id="nav-role">...</div>
+      <a href="/admin/">Dashboard</a>
+      <a href="/admin/parents.html">Parents</a>
+      <a href="/admin/grants.html">Schedules</a>
+      <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/monitor.html">Live View</a>
+      <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
+      <a href="/admin/admins.html" data-super-admin-only>Admins</a>
+      <a href="/admin/audit.html">Audit Log</a>
+      <div class="spacer"></div>
+      <button class="logout" onclick="logout()">Sign out</button>
+    </nav>
+    <main>
+      <h1>Live view</h1>
+      <p class="lede">Every active camera, regardless of who has a schedule for it - for setup and troubleshooting. Click a camera to start it; streams don't play automatically.</p>
+      <div class="grid" id="grid"></div>
+    </main>
+  </div>
+
+  <script src="/admin/admin.js"></script>
+  <script>
+    async function load() {
+      await requireAdmin();
+      const res = await apiFetch("/api/admin/cameras");
+      const cameras = (await res.json()).filter((c) => c.is_active);
+
+      const grid = document.getElementById("grid");
+      grid.innerHTML = cameras
+        .map(
+          (c) => `
+        <div class="cam-card" data-id="${c.id}">
+          <div class="head"><span class="name">${c.label}</span></div>
+          <div class="placeholder" onclick="startCamera('${c.id}')">Click to view</div>
+        </div>`
+        )
+        .join("") || "<p>No active cameras.</p>";
+    }
+
+    async function startCamera(cameraId) {
+      const card = document.querySelector(`.cam-card[data-id="${cameraId}"]`);
+      const placeholder = card.querySelector(".placeholder");
+      placeholder.textContent = "Connecting...";
+
+      const res = await apiFetch("/api/stream-token", { method: "POST", body: { camera_id: cameraId } });
+      if (!res.ok) {
+        placeholder.textContent = "Could not start stream.";
+        return;
+      }
+      const data = await res.json();
+
+      const video = document.createElement("video");
+      video.controls = true;
+      video.autoplay = true;
+      video.muted = true;
+      video.playsInline = true;
+      placeholder.replaceWith(video);
+
+      if (window.Hls && Hls.isSupported()) {
+        const hls = new Hls();
+        hls.loadSource(data.stream_url);
+        hls.attachMedia(video);
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        video.src = data.stream_url;
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

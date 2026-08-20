@@ -6,12 +6,14 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import Camera, CameraHealthEvent, HealthEventType, SessionEvent, SessionEventType, User
-from ..schedule import evaluate_access
+from ..models import Camera, CameraHealthEvent, HealthEventType, Role, SessionEvent, SessionEventType, User
+from ..schedule import AccessDecision, evaluate_access
 from ..schemas import SessionStatusResponse, StreamTokenRequest, StreamTokenResponse
 from ..security import create_stream_token
 
 router = APIRouter(tags=["stream"])
+
+ADMIN_ROLES = (Role.admin, Role.super_admin)
 
 
 def _camera_online(db: Session, camera_id: str) -> bool:
@@ -22,6 +24,15 @@ def _camera_online(db: Session, camera_id: str) -> bool:
         .first()
     )
     return last is None or last.event == HealthEventType.recovered
+
+
+def _decide(db: Session, user: User, camera_id: str) -> AccessDecision:
+    # Admins can preview any camera for setup/troubleshooting without needing
+    # a parent-style schedule grant of their own - the schedule model exists
+    # to gate parents, not to gate the people running the system.
+    if user.role in ADMIN_ROLES:
+        return AccessDecision(allowed=True, reason="admin_override")
+    return evaluate_access(db, user.id, camera_id)
 
 
 @router.post("/api/stream-token", response_model=StreamTokenResponse)
@@ -35,7 +46,7 @@ def issue_stream_token(
     if not camera or not camera.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Camera not found")
 
-    decision = evaluate_access(db, user.id, camera.id)
+    decision = _decide(db, user, camera.id)
     db.add(
         SessionEvent(
             user_id=user.id,
@@ -61,7 +72,7 @@ def issue_stream_token(
 
 @router.get("/api/session-status", response_model=SessionStatusResponse)
 def session_status(camera_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    decision = evaluate_access(db, user.id, camera_id)
+    decision = _decide(db, user, camera_id)
     return SessionStatusResponse(
         allowed=decision.allowed,
         reason=decision.reason,

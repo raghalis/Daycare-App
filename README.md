@@ -12,10 +12,10 @@ scaffolded so far.
 - `api/` - FastAPI backend: login, invites, stream-token issuance, the
   MediaMTX auth hook, admin endpoints, and camera-health polling with
   Pushover alerts.
-- `api/app/static/` - login, single-camera viewer, and an `admin/` section
-  (parents, schedules, overrides, cameras, admins, audit log) wired to the
-  `/api/admin/*` routes. No build step - plain HTML/JS, same as the rest of
-  the app.
+- `api/app/static/` - login, invite-acceptance, single-camera viewer, and an
+  `admin/` section (add-a-parent, schedules, overrides, live camera view,
+  cameras, admins, audit log) wired to the `/api/admin/*` routes. No build
+  step - plain HTML/JS, same as the rest of the app.
 - `.github/workflows/build.yml` - builds `api/` and pushes it to GHCR on
   every push to `main`, so Unraid only ever pulls a finished image.
 - `unraid-templates/` - the two containers as Unraid "Add Container"
@@ -135,9 +135,24 @@ Following the design doc's build order, roughly in this shape:
 - [x] Camera health polling + Pushover alerts
 - [x] Bare viewer page (single camera, HLS, countdown banner, end/offline card)
 - [x] CI build/publish to GHCR + Unraid templates
-- [x] Admin UI (parents + invites, schedules, overrides, cameras, admins,
-      audit log) - functional but plain; no calendar widget for overrides,
-      no bulk actions, no schedule "diff" view
-- [ ] Multi-camera viewer page (current one assumes one camera per parent)
+- [x] Admin UI: one guided "add a parent" flow (invite + multi-camera pick +
+      schedule, in one form), schedules, overrides, cameras, admins, audit
+      log, live camera view for admins (no personal grant needed) - plain
+      but complete; no calendar widget for overrides, no bulk actions
+- [x] Parent-facing invite acceptance page (was missing entirely - the
+      invite link pointed straight at a JSON API endpoint with no UI)
+- [x] UTC/local timezone display bug fixed (SQLite drops tzinfo on read;
+      timestamps sent to the browser now explicitly carry it)
+- [x] Multi-camera viewer (Protect-style: one large player + a switcher strip
+      with a live status dot per camera; parents can be assigned several now)
+- [x] Login rate limiting (per-email lockout + a coarser per-IP throttle) and
+      Pushover alerts on brute-force attempts and logins from a new IP
+- [x] Mobile pass: admin's fixed sidebar collapses to a top bar under 780px,
+      16px minimum on every input (avoids iOS Safari's auto-zoom-on-focus),
+      44px+ tap targets throughout, viewer/login/accept-invite reflowed
 - [ ] `next_window_start` computation for the "come back at..." messaging
       (currently only `window_end` is calculated)
+- [ ] SMTP invite delivery (lower priority per your call) - copy/paste the
+      link is fine at this scale
+- [ ] Recorded footage is explicitly out of scope for this app - handled by
+      Protect on request, not stored or served here

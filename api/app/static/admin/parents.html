@@ -15,6 +15,7 @@
       <a href="/admin/parents.html">Parents</a>
       <a href="/admin/grants.html">Schedules</a>
       <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/monitor.html">Live View</a>
       <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
       <a href="/admin/admins.html" data-super-admin-only>Admins</a>
       <a href="/admin/audit.html">Audit Log</a>
@@ -22,23 +23,41 @@
       <button class="logout" onclick="logout()">Sign out</button>
     </nav>
     <main>
-      <h1>Parents</h1>
-      <p class="lede">Invite a parent, then give them a schedule under Schedules. No email is sent automatically - copy the invite link and send it yourself.</p>
+      <h1>Add a parent</h1>
+      <p class="lede">One step: invite them, pick which camera(s) they can see, and when. Nothing is emailed automatically - you'll get a link at the end to send them yourself.</p>
 
-      <form class="panel" id="invite-form">
+      <form class="panel" id="add-form" style="max-width: 560px;">
         <label for="email">Email</label>
         <input type="email" id="email" required>
-        <label for="display_name">Display name</label>
-        <input type="text" id="display_name" placeholder="Shown to them, e.g. the family name" required>
-        <button type="submit">Send invite</button>
-        <p class="msg" id="invite-msg"></p>
+        <label for="display_name">Name</label>
+        <input type="text" id="display_name" placeholder="e.g. the Smith family" required>
+
+        <label>Camera(s)</label>
+        <div class="days" id="cameras"></div>
+
+        <label>Days they can watch</label>
+        <div class="days" id="days"></div>
+
+        <div class="row">
+          <div>
+            <label for="start_time">From</label>
+            <input type="time" id="start_time" value="07:00" required>
+          </div>
+          <div>
+            <label for="end_time">Until</label>
+            <input type="time" id="end_time" value="18:00" required>
+          </div>
+        </div>
+
+        <button type="submit">Add parent</button>
+        <p class="msg" id="add-msg"></p>
         <div class="invite-link hidden" id="invite-link"></div>
       </form>
 
       <h2>All parents</h2>
       <div class="table-wrap">
         <table id="parents-table">
-          <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Email</th><th>Status</th><th>Cameras</th><th>Actions</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -47,25 +66,67 @@
 
   <script src="/admin/admin.js"></script>
   <script>
+    let cameras = [];
+
+    function renderCameraCheckboxes() {
+      const container = document.getElementById("cameras");
+      container.innerHTML = cameras
+        .map((c) => `<label><input type="checkbox" value="${c.id}" checked> ${c.label}</label>`)
+        .join("") || "No cameras yet - add one under Cameras first.";
+    }
+
+    function renderDayCheckboxes() {
+      // Mon-Fri checked by default - the common daycare pattern; Sat/Sun off.
+      const container = document.getElementById("days");
+      container.innerHTML = DAY_LABELS.map(
+        (label, i) => `<label><input type="checkbox" value="${i}" ${i < 5 ? "checked" : ""}> ${label}</label>`
+      ).join("");
+    }
+
+    function selectedCameraIds() {
+      return Array.from(document.querySelectorAll("#cameras input:checked")).map((cb) => cb.value);
+    }
+
+    function selectedDaysMask() {
+      let mask = 0;
+      document.querySelectorAll("#days input:checked").forEach((cb) => (mask |= 1 << Number(cb.value)));
+      return mask;
+    }
+
+    async function loadCameras() {
+      const res = await apiFetch("/api/admin/cameras");
+      cameras = (await res.json()).filter((c) => c.is_active);
+      renderCameraCheckboxes();
+    }
+
     async function loadParents() {
-      const res = await apiFetch("/api/admin/users");
-      const users = await res.json();
+      const [usersRes, grantsRes] = await Promise.all([apiFetch("/api/admin/users"), apiFetch("/api/admin/grants")]);
+      const users = await usersRes.json();
+      const grants = await grantsRes.json();
       const parents = users.filter((u) => u.role === "parent");
+      const camerasById = Object.fromEntries(cameras.map((c) => [c.id, c]));
 
       const tbody = document.querySelector("#parents-table tbody");
       tbody.innerHTML = parents
-        .map(
-          (u) => `
-        <tr data-id="${u.id}">
+        .map((u) => {
+          const camLabels = grants
+            .filter((g) => g.user_id === u.id)
+            .map((g) => camerasById[g.camera_id]?.label ?? g.camera_id);
+          const uniqueCams = [...new Set(camLabels)].join(", ") || "-";
+          return `
+        <tr>
           <td>${u.display_name}</td>
           <td>${u.email}</td>
           <td>${u.is_active ? '<span class="pill">active</span>' : '<span class="pill inactive">disabled</span>'}${u.has_password ? "" : ' <span class="pill role">invite pending</span>'}</td>
+          <td>${uniqueCams}</td>
           <td class="actions">
-            <button class="tiny secondary" onclick="toggleActive('${u.id}', ${!u.is_active})">${u.is_active ? "Disable" : "Enable"}</button>
+            <a href="/admin/grants.html?user=${u.id}"><button type="button" class="tiny">Schedule</button></a>
+            <button type="button" class="tiny secondary" onclick="toggleActive('${u.id}', ${!u.is_active})">${u.is_active ? "Disable" : "Enable"}</button>
+            <button type="button" class="tiny secondary" onclick="resetAccess('${u.id}')">Reset password</button>
           </td>
-        </tr>`
-        )
-        .join("") || `<tr><td colspan="4">No parents yet - invite one above.</td></tr>`;
+        </tr>`;
+        })
+        .join("") || `<tr><td colspan="5">No parents yet - use the form above.</td></tr>`;
     }
 
     async function toggleActive(userId, nextActive) {
@@ -73,13 +134,30 @@
       loadParents();
     }
 
-    document.getElementById("invite-form").addEventListener("submit", async (event) => {
+    async function resetAccess(userId) {
+      if (!confirm("This clears their current password and gives you a fresh invite link to send them. Continue?")) return;
+      const res = await apiFetch(`/api/admin/users/${userId}/reset-invite`, { method: "POST" });
+      const body = await res.json();
+      const linkBox = document.getElementById("invite-link");
+      linkBox.textContent = window.location.origin + body.invite_url_path;
+      linkBox.classList.remove("hidden");
+      linkBox.scrollIntoView({ behavior: "smooth" });
+      loadParents();
+    }
+
+    document.getElementById("add-form").addEventListener("submit", async (event) => {
       event.preventDefault();
-      const msg = document.getElementById("invite-msg");
+      const msg = document.getElementById("add-msg");
       const linkBox = document.getElementById("invite-link");
       linkBox.classList.add("hidden");
 
-      const res = await apiFetch("/api/admin/invites", {
+      const cameraIds = selectedCameraIds();
+      if (!cameraIds.length) {
+        showMsg(msg, "Pick at least one camera.", true);
+        return;
+      }
+
+      const inviteRes = await apiFetch("/api/admin/invites", {
         method: "POST",
         body: {
           email: document.getElementById("email").value,
@@ -87,21 +165,45 @@
           role: "parent",
         },
       });
-      const body = await res.json();
-      if (!res.ok) {
-        showMsg(msg, body.detail || "Could not create invite.", true);
+      const invite = await inviteRes.json();
+      if (!inviteRes.ok) {
+        showMsg(msg, invite.detail || "Could not create invite.", true);
         return;
       }
-      showMsg(msg, "Invite created - copy the link below and send it to them.", false);
-      linkBox.textContent = window.location.origin + body.invite_url_path;
+
+      const grantBody = {
+        user_id: invite.user_id,
+        days_of_week: selectedDaysMask(),
+        start_time: document.getElementById("start_time").value,
+        end_time: document.getElementById("end_time").value,
+      };
+      const results = await Promise.all(
+        cameraIds.map((camera_id) =>
+          apiFetch("/api/admin/grants", { method: "POST", body: { ...grantBody, camera_id } })
+        )
+      );
+      const failed = results.filter((r) => !r.ok).length;
+
+      showMsg(
+        msg,
+        failed
+          ? `Parent added, but ${failed} camera assignment(s) failed - add them from Schedules.`
+          : "Parent added with their schedule. Copy the link below and send it to them.",
+        Boolean(failed)
+      );
+      linkBox.textContent = window.location.origin + invite.invite_url_path;
       linkBox.classList.remove("hidden");
-      document.getElementById("invite-form").reset();
+      document.getElementById("add-form").reset();
+      renderDayCheckboxes();
+      renderCameraCheckboxes();
       loadParents();
     });
 
     (async () => {
       await requireAdmin();
-      loadParents();
+      renderDayCheckboxes();
+      await loadCameras();
+      await loadParents();
     })();
   </script>
 </body>

@@ -3,7 +3,7 @@ from urllib.parse import parse_qs
 from fastapi import APIRouter, Request, Response, status
 
 from ..database import SessionLocal
-from ..models import Camera
+from ..models import Camera, Role, User
 from ..schedule import evaluate_access
 from ..security import decode_stream_token
 
@@ -37,6 +37,10 @@ async def validate(request: Request):
         camera = db.get(Camera, claims["cam"])
         if not camera or camera.mediamtx_path != body.get("path"):
             return Response(status_code=status.HTTP_401_UNAUTHORIZED)
+
+        requester = db.get(User, claims["sub"])
+        if requester and requester.role in (Role.admin, Role.super_admin):
+            return Response(status_code=status.HTTP_200_OK)
 
         decision = evaluate_access(db, claims["sub"], camera.id)
         if not decision.allowed:

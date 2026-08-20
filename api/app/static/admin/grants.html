@@ -15,6 +15,7 @@
       <a href="/admin/parents.html">Parents</a>
       <a href="/admin/grants.html">Schedules</a>
       <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/monitor.html">Live View</a>
       <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
       <a href="/admin/admins.html" data-super-admin-only>Admins</a>
       <a href="/admin/audit.html">Audit Log</a>
@@ -28,8 +29,8 @@
       <form class="panel" id="grant-form">
         <label for="user_id">Parent</label>
         <select id="user_id" required></select>
-        <label for="camera_id">Camera</label>
-        <select id="camera_id" required></select>
+        <label>Camera(s)</label>
+        <div class="days" id="cameras"></div>
         <label>Days</label>
         <div class="days" id="days"></div>
         <div class="row">
@@ -73,22 +74,27 @@
       return mask;
     }
 
+    function selectedCameraIds() {
+      return Array.from(document.querySelectorAll("#cameras input:checked")).map((cb) => cb.value);
+    }
+
     async function loadLookups() {
       const [usersRes, camerasRes] = await Promise.all([
         apiFetch("/api/admin/users"),
         apiFetch("/api/admin/cameras"),
       ]);
       const users = (await usersRes.json()).filter((u) => u.role === "parent");
-      const cameras = await camerasRes.json();
+      const cameras = (await camerasRes.json()).filter((c) => c.is_active);
       usersById = Object.fromEntries(users.map((u) => [u.id, u]));
       camerasById = Object.fromEntries(cameras.map((c) => [c.id, c]));
 
+      const preselectUser = new URLSearchParams(window.location.search).get("user");
       document.getElementById("user_id").innerHTML = users
-        .map((u) => `<option value="${u.id}">${u.display_name} (${u.email})</option>`)
+        .map((u) => `<option value="${u.id}" ${u.id === preselectUser ? "selected" : ""}>${u.display_name} (${u.email})</option>`)
         .join("") || `<option disabled>No parents yet - invite one first</option>`;
-      document.getElementById("camera_id").innerHTML = cameras
-        .map((c) => `<option value="${c.id}">${c.label}</option>`)
-        .join("") || `<option disabled>No cameras yet</option>`;
+      document.getElementById("cameras").innerHTML = cameras
+        .map((c) => `<label><input type="checkbox" value="${c.id}"> ${c.label}</label>`)
+        .join("") || "No cameras yet";
     }
 
     async function loadGrants() {
@@ -118,22 +124,23 @@
     document.getElementById("grant-form").addEventListener("submit", async (event) => {
       event.preventDefault();
       const msg = document.getElementById("grant-msg");
-      const res = await apiFetch("/api/admin/grants", {
-        method: "POST",
-        body: {
-          user_id: document.getElementById("user_id").value,
-          camera_id: document.getElementById("camera_id").value,
-          days_of_week: selectedDaysMask(),
-          start_time: document.getElementById("start_time").value,
-          end_time: document.getElementById("end_time").value,
-        },
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        showMsg(msg, body.detail || "Could not add schedule.", true);
+      const cameraIds = selectedCameraIds();
+      if (!cameraIds.length) {
+        showMsg(msg, "Pick at least one camera.", true);
         return;
       }
-      showMsg(msg, "Schedule added.", false);
+
+      const base = {
+        user_id: document.getElementById("user_id").value,
+        days_of_week: selectedDaysMask(),
+        start_time: document.getElementById("start_time").value,
+        end_time: document.getElementById("end_time").value,
+      };
+      const results = await Promise.all(
+        cameraIds.map((camera_id) => apiFetch("/api/admin/grants", { method: "POST", body: { ...base, camera_id } }))
+      );
+      const failed = results.filter((r) => !r.ok).length;
+      showMsg(msg, failed ? `${failed} of ${cameraIds.length} camera(s) failed to add.` : "Schedule added.", Boolean(failed));
       loadGrants();
     });
 

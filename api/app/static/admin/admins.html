@@ -15,6 +15,7 @@
       <a href="/admin/parents.html">Parents</a>
       <a href="/admin/grants.html">Schedules</a>
       <a href="/admin/overrides.html">Overrides</a>
+      <a href="/admin/monitor.html">Live View</a>
       <a href="/admin/cameras.html" data-super-admin-only>Cameras</a>
       <a href="/admin/admins.html" data-super-admin-only>Admins</a>
       <a href="/admin/audit.html">Audit Log</a>
@@ -69,7 +70,10 @@
                    style="width:140px;font-size:12px;padding:4px 6px;"
                    onchange="setPushoverKey('${u.id}', this.value)">
           </td>
-          <td class="actions"><button class="tiny secondary" onclick="toggleActive('${u.id}', ${!u.is_active})">${u.is_active ? "Disable" : "Enable"}</button></td>
+          <td class="actions">
+            <button class="tiny secondary" onclick="toggleActive('${u.id}', ${!u.is_active})">${u.is_active ? "Disable" : "Enable"}</button>
+            <button class="tiny secondary" onclick="resetAccess('${u.id}')">Reset password</button>
+          </td>
         </tr>`
         )
         .join("") || `<tr><td colspan="6">No other admins yet.</td></tr>`;
@@ -82,6 +86,17 @@
 
     async function setPushoverKey(userId, value) {
       await apiFetch(`/api/admin/users/${userId}`, { method: "PATCH", body: { pushover_user_key: value } });
+    }
+
+    async function resetAccess(userId) {
+      if (!confirm("This clears their current password and gives you a fresh invite link to send them. Continue?")) return;
+      const res = await apiFetch(`/api/admin/users/${userId}/reset-invite`, { method: "POST" });
+      const body = await res.json();
+      const linkBox = document.getElementById("invite-link");
+      linkBox.textContent = window.location.origin + body.invite_url_path;
+      linkBox.classList.remove("hidden");
+      linkBox.scrollIntoView({ behavior: "smooth" });
+      loadAdmins();
     }
 
     document.getElementById("invite-form").addEventListener("submit", async (event) => {

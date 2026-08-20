@@ -5,10 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Access Window - Sign in</title>
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 360px; margin: 15vh auto; padding: 0 16px; color: #12181f; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; max-width: 360px; margin: 8vh auto 0; padding: 0 16px 24px; color: #12181f; }
   h1 { font-size: 1.4rem; }
-  input { display: block; width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; font-size: 15px; }
-  button { width: 100%; padding: 10px; margin-top: 4px; font-size: 15px; cursor: pointer; }
+  /* 16px minimum keeps iOS Safari from auto-zooming in when a field is tapped */
+  input { display: block; width: 100%; padding: 12px; margin: 8px 0; font-size: 16px; }
+  button { width: 100%; padding: 12px; margin-top: 4px; font-size: 16px; cursor: pointer; min-height: 44px; }
   #error { color: #a24c39; font-size: 14px; min-height: 1.2em; }
 </style>
 </head>
